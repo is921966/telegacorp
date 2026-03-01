@@ -75,7 +75,7 @@ export function CallsPageClient() {
   const groupedCalls = (() => {
     const groups: Record<string, typeof calls> = {};
     for (const call of calls) {
-      const dateKey = call.date.toLocaleDateString("ru-RU", {
+      const dateKey = new Date(call.date).toLocaleDateString("ru-RU", {
         day: "numeric", month: "long", year: "numeric",
       });
       if (!groups[dateKey]) groups[dateKey] = [];
