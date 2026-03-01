@@ -3,10 +3,10 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { TelegramContact } from "@/types/telegram";
 import { cn, safeDate } from "@/lib/utils";
+import { useLazyAvatar } from "@/hooks/useLazyAvatar";
 
 interface ContactListItemProps {
   contact: TelegramContact;
-  photoUrl?: string;
   onClick: () => void;
 }
 
@@ -43,11 +43,13 @@ function formatLastSeen(date?: Date, isOnline?: boolean): { text: string; isOnli
   return { text: `last seen ${d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" })}`, isOnline: false };
 }
 
-export function ContactListItem({ contact, photoUrl, onClick }: ContactListItemProps) {
+export function ContactListItem({ contact, onClick }: ContactListItemProps) {
+  const { ref: avatarRef, avatarUrl: photoUrl } = useLazyAvatar(contact.id);
   const status = formatLastSeen(contact.lastSeen, contact.isOnline);
 
   return (
     <button
+      ref={avatarRef}
       onClick={onClick}
       className="flex w-full items-center gap-3 px-4 py-[6px] text-left transition-colors hover:bg-accent/50 active:bg-accent/80"
     >

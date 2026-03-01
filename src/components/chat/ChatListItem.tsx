@@ -3,6 +3,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { TelegramDialog } from "@/types/telegram";
 import { cn, safeDate } from "@/lib/utils";
+import { useLazyAvatar } from "@/hooks/useLazyAvatar";
 import {
   Pin,
   Check,
@@ -26,7 +27,6 @@ interface ChatListItemProps {
   dialog: TelegramDialog;
   isSelected: boolean;
   onClick: () => void;
-  photoUrl?: string;
 }
 
 function getInitials(title: string): string {
@@ -114,8 +114,8 @@ export function ChatListItem({
   dialog,
   isSelected,
   onClick,
-  photoUrl,
 }: ChatListItemProps) {
+  const { ref: avatarRef, avatarUrl: photoUrl } = useLazyAvatar(dialog.id);
   const lastMsg = dialog.lastMessage;
   const mediaLabel = lastMsg?.mediaType ? getMediaLabel(lastMsg.mediaType) : null;
 
@@ -163,6 +163,7 @@ export function ChatListItem({
 
   return (
     <button
+      ref={avatarRef}
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-3 rounded-lg px-3 py-1.5 md:py-2.5 text-left transition-colors overflow-hidden",

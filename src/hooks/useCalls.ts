@@ -5,36 +5,47 @@ import { useCallsStore } from "@/store/calls";
 import { useAuthStore } from "@/store/auth";
 
 const CALLS_LIMIT = 50;
+/** Consider cached data stale after 10 minutes */
+const STALE_TIMEOUT = 10 * 60 * 1000;
 
 export function useCalls() {
   const isTelegramConnected = useAuthStore((s) => s.isTelegramConnected);
   const {
-    calls, isLoading, hasMore, error,
+    calls, isLoading, hasMore, error, lastFetchedAt,
     setCalls, appendCalls, setLoading, setHasMore, setError,
   } = useCallsStore();
-  const loaded = useRef(false);
+  const loadInProgress = useRef(false);
 
   const loadCalls = useCallback(async () => {
     if (!isTelegramConnected) return;
+    if (loadInProgress.current) return;
+    loadInProgress.current = true;
 
     const { getConnectedClient } = await import("@/lib/telegram/client");
     const client = await getConnectedClient();
-    if (!client) return;
+    if (!client) {
+      loadInProgress.current = false;
+      return;
+    }
 
-    setLoading(true);
+    const hasCached = calls.length > 0;
+    if (!hasCached) setLoading(true);
+
     try {
       const { getCallHistory } = await import("@/lib/telegram/calls");
       const result = await getCallHistory(client, CALLS_LIMIT);
       setCalls(result);
       setHasMore(result.length >= CALLS_LIMIT);
-      loaded.current = true;
     } catch (err) {
       console.error("Failed to load calls:", err);
-      setError(err instanceof Error ? err.message : "Не удалось загрузить звонки");
+      if (!hasCached) {
+        setError(err instanceof Error ? err.message : "Не удалось загрузить звонки");
+      }
     } finally {
-      setLoading(false);
+      if (!hasCached) setLoading(false);
+      loadInProgress.current = false;
     }
-  }, [isTelegramConnected, setCalls, setLoading, setHasMore, setError]);
+  }, [isTelegramConnected, calls.length, setCalls, setLoading, setHasMore, setError]);
 
   const loadMore = useCallback(async () => {
     if (!isTelegramConnected || isLoading || !hasMore || calls.length === 0) return;
@@ -61,11 +72,17 @@ export function useCalls() {
     }
   }, [isTelegramConnected, isLoading, hasMore, calls, appendCalls, setLoading, setHasMore]);
 
+  // Stale-while-revalidate: show cached calls, refresh in background
   useEffect(() => {
-    if (isTelegramConnected && !loaded.current && calls.length === 0) {
+    if (!isTelegramConnected) return;
+
+    const hasCached = calls.length > 0;
+    const isStale = Date.now() - lastFetchedAt > STALE_TIMEOUT;
+
+    if (!hasCached || isStale) {
       loadCalls();
     }
-  }, [isTelegramConnected, calls.length, loadCalls]);
+  }, [isTelegramConnected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { calls, isLoading, hasMore, error, loadCalls, loadMore };
 }

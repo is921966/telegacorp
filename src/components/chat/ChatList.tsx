@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,10 +22,6 @@ export function ChatList() {
   // Shared folder state
   const { folders, selectedFolder, setFolders, setSelectedFolder } = useFoldersStore();
 
-  // Photo cache state — triggers re-render when photos load
-  const [photoMap, setPhotoMap] = useState<Record<string, string>>({});
-  const [, setPhotoGeneration] = useState(0);
-
   // Infinite scroll refs
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef(loadMore);
@@ -43,44 +39,6 @@ export function ChatList() {
       }
     })();
   }, [client, isConnected, setFolders]);
-
-  // Lazy-load avatars in background once dialogs are available
-  useEffect(() => {
-    if (!client || dialogs.length === 0) return;
-
-    let cancelled = false;
-
-    (async () => {
-      const { downloadAvatar, getCachedAvatar } = await import(
-        "@/lib/telegram/photos"
-      );
-
-      const toLoad = dialogs.filter((d) => getCachedAvatar(d.id) === undefined);
-      if (toLoad.length === 0) return;
-
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < toLoad.length; i += BATCH_SIZE) {
-        if (cancelled) break;
-        const batch = toLoad.slice(i, i + BATCH_SIZE);
-        await Promise.allSettled(
-          batch.map((d) => downloadAvatar(client, d.id))
-        );
-        if (!cancelled) {
-          const newMap: Record<string, string> = {};
-          for (const d of dialogs) {
-            const url = getCachedAvatar(d.id);
-            if (url) newMap[d.id] = url;
-          }
-          setPhotoMap(newMap);
-          setPhotoGeneration((g) => g + 1);
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [client, dialogs.length]);
 
   // Compute folders with unread counts
   const foldersWithUnreads = useMemo(() => {
@@ -214,7 +172,6 @@ export function ChatList() {
                   key={dialog.id}
                   dialog={dialog}
                   isSelected={selectedChatId === dialog.id}
-                  photoUrl={photoMap[dialog.id]}
                   onClick={() => {
                     selectChat(dialog.id);
                   }}

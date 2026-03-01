@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useRef, useCallback, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContactListItem } from "@/components/contacts/ContactListItem";
@@ -13,49 +13,8 @@ export function ContactsPageClient() {
   const isTelegramConnected = useAuthStore((s) => s.isTelegramConnected);
   const { selectChat } = useUIStore();
   const { groupedContacts, contacts, isLoading, error, searchQuery, setSearchQuery } = useContacts();
-  const [photoMap, setPhotoMap] = useState<Record<string, string>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  // Load avatars for visible contacts (get client from module singleton)
-  useEffect(() => {
-    if (!isTelegramConnected || contacts.length === 0) return;
-
-    let cancelled = false;
-    (async () => {
-      const { getConnectedClient } = await import("@/lib/telegram/client");
-      const client = await getConnectedClient();
-      if (!client || cancelled) return;
-
-      const { downloadAvatar, getCachedAvatar } = await import("@/lib/telegram/photos");
-      const toLoad = contacts.filter((c) => getCachedAvatar(c.id) === undefined);
-      if (toLoad.length === 0) {
-        const newMap: Record<string, string> = {};
-        for (const c of contacts) {
-          const url = getCachedAvatar(c.id);
-          if (url) newMap[c.id] = url;
-        }
-        setPhotoMap(newMap);
-        return;
-      }
-
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < toLoad.length; i += BATCH_SIZE) {
-        if (cancelled) break;
-        const batch = toLoad.slice(i, i + BATCH_SIZE);
-        await Promise.allSettled(batch.map((c) => downloadAvatar(client, c.id)));
-        if (!cancelled) {
-          const newMap: Record<string, string> = {};
-          for (const c of contacts) {
-            const url = getCachedAvatar(c.id);
-            if (url) newMap[c.id] = url;
-          }
-          setPhotoMap(newMap);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isTelegramConnected, contacts]);
 
   // Sort letters: Latin → Cyrillic → digits/symbols
   const letters = Object.keys(groupedContacts).sort((a, b) => {
@@ -168,7 +127,6 @@ export function ContactsPageClient() {
                       <ContactListItem
                         key={contact.id}
                         contact={contact}
-                        photoUrl={photoMap[contact.id]}
                         onClick={() => selectChat(contact.id)}
                       />
                     ))}

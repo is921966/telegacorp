@@ -4,11 +4,16 @@ import { useCallback, useEffect, useRef } from "react";
 import { useChatsStore } from "@/store/chats";
 import { useTelegramClient } from "./useTelegramClient";
 
-const INITIAL_LIMIT = 100;
-const BACKGROUND_LIMIT = 2000;
-const LOAD_MORE_BATCH = 200;
+// Adaptive limits — reduced when slow connection is detected
+const FAST_LIMITS = { initial: 100, background: 2000, loadMore: 200 };
+const SLOW_LIMITS = { initial: 30, background: 500, loadMore: 50 };
+/** Connection is considered slow if first batch takes > 3s */
+const SLOW_THRESHOLD_MS = 3000;
 /** Consider cached data stale after 10 minutes */
 const STALE_TIMEOUT = 10 * 60 * 1000;
+
+/** Detected connection speed — persists for the session */
+let detectedLimits = FAST_LIMITS;
 
 export function useDialogs() {
   const { client, isConnected } = useTelegramClient();
@@ -30,27 +35,37 @@ export function useDialogs() {
 
     try {
       const { getDialogs } = await import("@/lib/telegram/dialogs");
-      // Fast first batch for immediate UI
-      const first = await getDialogs(client, INITIAL_LIMIT);
+
+      // Measure first batch time to detect slow connection
+      const t0 = performance.now();
+      const first = await getDialogs(client, detectedLimits.initial);
+      const elapsed = performance.now() - t0;
+
+      // Adapt limits for slow connections
+      if (elapsed > SLOW_THRESHOLD_MS && detectedLimits === FAST_LIMITS) {
+        detectedLimits = SLOW_LIMITS;
+        console.info(`[useDialogs] Slow connection detected (${Math.round(elapsed)}ms), using reduced limits`);
+      }
+
       setDialogs(first);
 
       // Background: load extended set so folder filtering covers all contacts
-      if (first.length >= INITIAL_LIMIT && !extendedLoadDone.current) {
+      if (first.length >= detectedLimits.initial && !extendedLoadDone.current) {
         extendedLoadDone.current = true;
         (async () => {
           try {
-            const all = await getDialogs(client, BACKGROUND_LIMIT);
+            const all = await getDialogs(client, detectedLimits.background);
             if (all.length > first.length) {
               setDialogs(all);
             }
-            if (all.length < BACKGROUND_LIMIT) {
+            if (all.length < detectedLimits.background) {
               setHasMore(false);
             }
           } catch {
             // Non-critical
           }
         })();
-      } else if (first.length < INITIAL_LIMIT) {
+      } else if (first.length < detectedLimits.initial) {
         setHasMore(false);
       }
     } catch (err) {
@@ -82,13 +97,13 @@ export function useDialogs() {
         offsetDate = Math.floor(d.getTime() / 1000);
       }
 
-      const more = await getDialogs(client, LOAD_MORE_BATCH, offsetDate);
+      const more = await getDialogs(client, detectedLimits.loadMore, offsetDate);
 
       if (more.length === 0) {
         setHasMore(false);
       } else {
         appendDialogs(more);
-        if (more.length < LOAD_MORE_BATCH) {
+        if (more.length < detectedLimits.loadMore) {
           setHasMore(false);
         }
       }

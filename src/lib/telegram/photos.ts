@@ -5,6 +5,32 @@ import { useAvatarsStore } from "@/store/avatars";
 const pendingFetches = new Set<string>();
 
 /**
+ * Compress a data URL avatar to 80x80 JPEG via Canvas.
+ * Reduces base64 size ~10x (from ~30KB to ~3KB), saving localStorage space.
+ */
+function compressAvatar(dataUrl: string): Promise<string> {
+  if (typeof document === "undefined") return Promise.resolve(dataUrl);
+
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = 80;
+      canvas.height = 80;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, 80, 80);
+      resolve(canvas.toDataURL("image/jpeg", 0.7));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/**
  * Download a profile photo for a given entity ID and cache it.
  * Returns a data URL string or null if no photo available.
  */
@@ -41,9 +67,11 @@ export async function downloadAvatar(
       } else {
         base64 = bufferToBase64(buffer);
       }
-      const dataUrl = base64.startsWith("data:")
+      const rawUrl = base64.startsWith("data:")
         ? base64
         : `data:image/jpeg;base64,${base64}`;
+      // Compress to 80x80 JPEG to save localStorage space (~10x smaller)
+      const dataUrl = await compressAvatar(rawUrl);
       useAvatarsStore.getState().setAvatar(entityId, dataUrl);
       return dataUrl;
     }
