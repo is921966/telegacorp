@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatListItem } from "./ChatListItem";
 import { SidebarHeader } from "./SidebarHeader";
@@ -22,10 +22,7 @@ export function ChatList() {
   // Shared folder state
   const { folders, selectedFolder, setFolders, setSelectedFolder } = useFoldersStore();
 
-  // Infinite scroll refs
-  const sentinelRef = useRef<HTMLDivElement>(null);
-  const loadMoreRef = useRef(loadMore);
-  loadMoreRef.current = loadMore;
+  const parentRef = useRef<HTMLDivElement>(null);
 
   // Load folders
   useEffect(() => {
@@ -103,23 +100,29 @@ export function ChatList() {
     });
   }, [filtered, selectedFolder, folders]);
 
-  // Infinite scroll: observe sentinel element near bottom of list
+  // Virtualizer for performant list rendering
+  const virtualizer = useVirtualizer({
+    count: sorted.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 68,
+    overscan: 10,
+  });
+
+  // Infinite scroll: load more when near end of virtual list
+  const virtualItems = virtualizer.getVirtualItems();
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          loadMoreRef.current();
-        }
-      },
-      { rootMargin: "200px" }
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [sorted.length]);
+    const lastItem = virtualItems[virtualItems.length - 1];
+    if (!lastItem) return;
+    if (
+      lastItem.index >= sorted.length - 10 &&
+      hasMore &&
+      !filter &&
+      selectedFolder === 0 &&
+      !isLoadingMore
+    ) {
+      loadMore();
+    }
+  }, [virtualItems, sorted.length, hasMore, filter, selectedFolder, isLoadingMore, loadMore]);
 
   return (
     <div className="flex h-full flex-col min-h-0">
@@ -149,7 +152,10 @@ export function ChatList() {
         onSelectFolder={setSelectedFolder}
       />
 
-      <ScrollArea className="flex-1 min-h-0">
+      <div
+        ref={parentRef}
+        className="flex-1 min-h-0 overflow-y-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-foreground/20 [&:hover::-webkit-scrollbar-thumb]:bg-foreground/35"
+      >
         <div className="px-1">
           {isLoading ? (
             Array.from({ length: 8 }).map((_, i) => (
@@ -166,29 +172,42 @@ export function ChatList() {
               {filter ? "Чаты не найдены" : "Нет диалогов"}
             </div>
           ) : (
-            <>
-              {sorted.map((dialog) => (
-                <ChatListItem
-                  key={dialog.id}
-                  dialog={dialog}
-                  isSelected={selectedChatId === dialog.id}
-                  onClick={() => {
-                    selectChat(dialog.id);
-                  }}
-                />
-              ))}
-              {/* Infinite scroll sentinel */}
-              {hasMore && !filter && selectedFolder === 0 && (
-                <div ref={sentinelRef} className="py-2 flex justify-center">
-                  {isLoadingMore && (
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  )}
+            <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
+              {virtualItems.map((virtualRow) => {
+                const dialog = sorted[virtualRow.index];
+                return (
+                  <div
+                    key={dialog.id}
+                    data-index={virtualRow.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <ChatListItem
+                      dialog={dialog}
+                      isSelected={selectedChatId === dialog.id}
+                      onClick={() => selectChat(dialog.id)}
+                    />
+                  </div>
+                );
+              })}
+              {isLoadingMore && (
+                <div
+                  style={{ position: "absolute", top: `${virtualizer.getTotalSize()}px`, width: "100%" }}
+                  className="py-2 flex justify-center"
+                >
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Version info */}
       <div className="px-3 py-1 text-[10px] text-muted-foreground/50 text-center select-none">

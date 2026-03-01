@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useChatsStore } from "@/store/chats";
 import { useTelegramClient } from "./useTelegramClient";
+import { isSlowConnection } from "@/lib/network";
 
 // Adaptive limits — reduced when slow connection is detected
 const FAST_LIMITS = { initial: 100, background: 2000, loadMore: 200 };
@@ -12,8 +13,8 @@ const SLOW_THRESHOLD_MS = 3000;
 /** Consider cached data stale after 10 minutes */
 const STALE_TIMEOUT = 10 * 60 * 1000;
 
-/** Detected connection speed — persists for the session */
-let detectedLimits = FAST_LIMITS;
+/** Detected connection speed — initialized from Network Information API, refined by timing */
+let detectedLimits = isSlowConnection() ? SLOW_LIMITS : FAST_LIMITS;
 
 export function useDialogs() {
   const { client, isConnected } = useTelegramClient();

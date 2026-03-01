@@ -1,20 +1,25 @@
 "use client";
 
 import { useRef, useCallback, useMemo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ContactListItem } from "@/components/contacts/ContactListItem";
 import { useContacts } from "@/hooks/useContacts";
 import { useAuthStore } from "@/store/auth";
 import { useUIStore } from "@/store/ui";
+import type { TelegramContact } from "@/types/telegram";
 import { Search, Users, UserPlus, ArrowUpDown } from "lucide-react";
+
+type FlatItem =
+  | { type: "header"; letter: string }
+  | { type: "contact"; contact: TelegramContact };
 
 export function ContactsPageClient() {
   const isTelegramConnected = useAuthStore((s) => s.isTelegramConnected);
   const { selectChat } = useUIStore();
   const { groupedContacts, contacts, isLoading, error, searchQuery, setSearchQuery } = useContacts();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   // Sort letters: Latin → Cyrillic → digits/symbols
   const letters = Object.keys(groupedContacts).sort((a, b) => {
@@ -26,13 +31,44 @@ export function ContactsPageClient() {
     return a.localeCompare(b);
   });
 
+  // Flatten grouped contacts for virtualizer
+  const flatItems = useMemo<FlatItem[]>(() => {
+    const items: FlatItem[] = [];
+    for (const letter of letters) {
+      items.push({ type: "header", letter });
+      for (const contact of groupedContacts[letter]) {
+        items.push({ type: "contact", contact });
+      }
+    }
+    return items;
+  }, [letters, groupedContacts]);
+
+  // Letter → flat index mapping for alphabet sidebar
+  const letterToIndex = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (let i = 0; i < flatItems.length; i++) {
+      const item = flatItems[i];
+      if (item.type === "header") {
+        map[item.letter] = i;
+      }
+    }
+    return map;
+  }, [flatItems]);
+
+  const virtualizer = useVirtualizer({
+    count: flatItems.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) => flatItems[index]?.type === "header" ? 28 : 52,
+    overscan: 15,
+  });
+
   // Scroll to section when tapping alphabet index
   const scrollToLetter = useCallback((letter: string) => {
-    const el = sectionRefs.current[letter];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    const index = letterToIndex[letter];
+    if (index !== undefined) {
+      virtualizer.scrollToIndex(index, { align: "start" });
     }
-  }, []);
+  }, [letterToIndex, virtualizer]);
 
   // Thin out alphabet index if too many letters to fit
   const MAX_SIDEBAR_LETTERS = 28;
@@ -113,25 +149,55 @@ export function ContactsPageClient() {
             </div>
           ) : (
             <div className="relative flex-1 min-h-0 flex">
-              {/* Main scrollable list */}
-              <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 pr-5">
-                {letters.map((letter) => (
-                  <div
-                    key={letter}
-                    ref={(el) => { sectionRefs.current[letter] = el; }}
-                  >
-                    <div className="sticky top-0 z-10 bg-background px-4 py-1">
-                      <span className="text-[13px] font-medium text-muted-foreground">{letter}</span>
-                    </div>
-                    {groupedContacts[letter].map((contact) => (
-                      <ContactListItem
-                        key={contact.id}
-                        contact={contact}
-                        onClick={() => selectChat(contact.id)}
-                      />
-                    ))}
-                  </div>
-                ))}
+              {/* Virtualized scrollable list */}
+              <div
+                ref={scrollRef}
+                className="flex-1 overflow-y-auto min-h-0 pr-5 [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-foreground/20 [&:hover::-webkit-scrollbar-thumb]:bg-foreground/35"
+              >
+                <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
+                  {virtualizer.getVirtualItems().map((virtualRow) => {
+                    const item = flatItems[virtualRow.index];
+                    if (item.type === "header") {
+                      return (
+                        <div
+                          key={`hdr-${item.letter}`}
+                          data-index={virtualRow.index}
+                          ref={virtualizer.measureElement}
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "100%",
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <div className="bg-background px-4 py-1">
+                            <span className="text-[13px] font-medium text-muted-foreground">{item.letter}</span>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div
+                        key={item.contact.id}
+                        data-index={virtualRow.index}
+                        ref={virtualizer.measureElement}
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        <ContactListItem
+                          contact={item.contact}
+                          onClick={() => selectChat(item.contact.id)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Alphabet index sidebar */}

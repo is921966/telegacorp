@@ -1,7 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
 import { TelegramSessionProvider } from "@/components/providers/TelegramSessionProvider";
+import { OfflineBanner } from "@/components/ui/offline-banner";
+import { ServiceWorkerRegistrar } from "@/components/providers/ServiceWorkerRegistrar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -18,6 +20,19 @@ export const metadata: Metadata = {
   title: "Telegram Corp",
   description: "Corporate Telegram Client",
   manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "TG Corp",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#2563eb",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({
@@ -30,7 +45,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <ServiceWorkerRegistrar />
         <TelegramSessionProvider>
+          <OfflineBanner />
           {children}
         </TelegramSessionProvider>
         <Toaster />

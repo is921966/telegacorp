@@ -1,8 +1,9 @@
 import type { TelegramClient } from "telegram";
 import { Api } from "telegram";
+import { getMediaFromIDB, putMediaToIDB } from "@/lib/idb-media-cache";
 
-/** In-memory cache for downloaded media data URLs */
-const mediaCache = new Map<string, string>();
+/** In-memory hot cache for instant access (session-only) */
+const memoryCache = new Map<string, string>();
 
 /** Set of keys currently being fetched */
 const pendingDownloads = new Set<string>();
@@ -23,7 +24,7 @@ function bufferToBase64(buffer: Buffer | Uint8Array): string {
 
 /**
  * Download media for a message and return a data URL.
- * Results are cached in memory.
+ * Two-tier cache: in-memory (fast) → IndexedDB (persistent, ~100MB LRU).
  */
 export async function downloadMessageMedia(
   client: TelegramClient,
@@ -32,8 +33,16 @@ export async function downloadMessageMedia(
 ): Promise<string | null> {
   const key = `${chatId}:${messageId}`;
 
-  const cached = mediaCache.get(key);
-  if (cached !== undefined) return cached || null;
+  // Tier 1: in-memory hot cache
+  const memCached = memoryCache.get(key);
+  if (memCached !== undefined) return memCached || null;
+
+  // Tier 2: IndexedDB persistent cache
+  const idbCached = await getMediaFromIDB(key);
+  if (idbCached !== null) {
+    memoryCache.set(key, idbCached);
+    return idbCached || null;
+  }
 
   if (pendingDownloads.has(key)) return null;
   pendingDownloads.add(key);
@@ -42,7 +51,8 @@ export async function downloadMessageMedia(
     const msgs = await client.getMessages(chatId, { ids: [messageId] });
     const msg = msgs[0];
     if (!msg || !(msg instanceof Api.Message) || !msg.media) {
-      mediaCache.set(key, "");
+      memoryCache.set(key, "");
+      await putMediaToIDB(key, "");
       return null;
     }
 
@@ -75,22 +85,26 @@ export async function downloadMessageMedia(
           // Stickers can be webp or tgs (animated)
           if (doc.mimeType === "application/x-tgsticker") {
             // Animated stickers — not supported as image, skip
-            mediaCache.set(key, "");
+            memoryCache.set(key, "");
+            await putMediaToIDB(key, "");
             return null;
           }
         } else {
           // Regular documents — don't auto-download
-          mediaCache.set(key, "");
+          memoryCache.set(key, "");
+          await putMediaToIDB(key, "");
           return null;
         }
       }
     } else {
-      mediaCache.set(key, "");
+      memoryCache.set(key, "");
+      await putMediaToIDB(key, "");
       return null;
     }
 
     if (!buffer || (typeof buffer !== "string" && buffer.length === 0)) {
-      mediaCache.set(key, "");
+      memoryCache.set(key, "");
+      await putMediaToIDB(key, "");
       return null;
     }
 
@@ -104,7 +118,10 @@ export async function downloadMessageMedia(
     const dataUrl = base64.startsWith("data:")
       ? base64
       : `data:${mime};base64,${base64}`;
-    mediaCache.set(key, dataUrl);
+
+    // Store in both tiers
+    memoryCache.set(key, dataUrl);
+    await putMediaToIDB(key, dataUrl);
     return dataUrl;
   } catch (err) {
     console.error("Failed to download media:", key, err);
@@ -115,8 +132,9 @@ export async function downloadMessageMedia(
 }
 
 /**
- * Get cached media URL synchronously. Returns undefined if not cached.
+ * Get cached media URL synchronously from hot cache.
+ * For async lookup (includes IndexedDB), use downloadMessageMedia.
  */
 export function getCachedMedia(chatId: string, messageId: number): string | undefined {
-  return mediaCache.get(`${chatId}:${messageId}`) || undefined;
+  return memoryCache.get(`${chatId}:${messageId}`) || undefined;
 }

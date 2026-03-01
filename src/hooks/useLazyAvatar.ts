@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from "react";
 import { useAvatarsStore } from "@/store/avatars";
+import { getConnectionQuality, onConnectionChange } from "@/lib/network";
 
 // ---------------------------------------------------------------------------
 // Shared IntersectionObserver — one for all avatar elements
@@ -35,14 +36,23 @@ function getObserver(): IntersectionObserver {
 // ---------------------------------------------------------------------------
 const downloadQueue: string[] = [];
 let isProcessing = false;
-const CONCURRENCY = 5;
+const FAST_CONCURRENCY = 5;
+const SLOW_CONCURRENCY = 2;
+let concurrency = getConnectionQuality() === "slow" ? SLOW_CONCURRENCY : FAST_CONCURRENCY;
+
+// React to connection quality changes
+if (typeof window !== "undefined") {
+  onConnectionChange((quality) => {
+    concurrency = quality === "slow" ? SLOW_CONCURRENCY : FAST_CONCURRENCY;
+  });
+}
 
 async function processQueue() {
   if (isProcessing) return;
   isProcessing = true;
 
   while (downloadQueue.length > 0) {
-    const batch = downloadQueue.splice(0, CONCURRENCY);
+    const batch = downloadQueue.splice(0, concurrency);
     try {
       const { getConnectedClient } = await import("@/lib/telegram/client");
       const client = await getConnectedClient();
