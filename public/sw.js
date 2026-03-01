@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-const CACHE_NAME = "tg-corp-v2";
+const CACHE_NAME = "tg-corp-v3";
 const OFFLINE_URL = "/offline.html";
 
 // Static assets to pre-cache on install
@@ -47,11 +47,11 @@ self.addEventListener("fetch", (event) => {
     url.searchParams.has("_rsc")
   ) return;
 
-  // Static assets (_next/static/*, fonts, images): cache-first
+  // Static assets: split strategy by mutability
+  // Immutable hashed assets (media files with content hash): cache-first
   if (
-    url.pathname.startsWith("/_next/static/") ||
-    url.pathname.startsWith("/icons/") ||
-    url.pathname.match(/\.(js|css|woff2?|ttf|ico|png|jpg|svg)$/)
+    url.pathname.startsWith("/_next/static/media/") ||
+    url.pathname.startsWith("/icons/")
   ) {
     event.respondWith(
       caches.match(request).then((cached) => {
@@ -63,6 +63,27 @@ self.addEventListener("fetch", (event) => {
           }
           return response;
         });
+      })
+    );
+    return;
+  }
+
+  // Mutable assets (JS chunks, CSS): stale-while-revalidate
+  // Serve cached version instantly but always fetch fresh copy for next time
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.match(/\.(js|css|woff2?|ttf)$/)
+  ) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        const fetchPromise = fetch(request).then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        });
+        return cached || fetchPromise;
       })
     );
     return;
