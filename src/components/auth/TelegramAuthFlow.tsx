@@ -1,0 +1,226 @@
+"use client";
+
+import { useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Card, CardContent } from "@/components/ui/card";
+import { PhoneInput } from "@/components/auth/PhoneInput";
+import { CodeInput } from "@/components/auth/CodeInput";
+import { PasswordInput } from "@/components/auth/PasswordInput";
+import { useAuthStore } from "@/store/auth";
+import { useTelegramClient } from "@/hooks/useTelegramClient";
+
+type Resolver<T> = (value: T) => void;
+
+/** Timeout for connection + code sending (30s) */
+const CONNECT_TIMEOUT_MS = 30_000;
+
+export function TelegramAuthFlow() {
+  const router = useRouter();
+  const {
+    supabaseUser,
+    setTelegramUser,
+    setTelegramConnected,
+    telegramAuthState,
+    setTelegramAuthState,
+  } = useAuthStore();
+  const { connect } = useTelegramClient();
+
+  // Refs for promise resolvers — GramJS calls us, we wait for UI input
+  const phoneResolverRef = useRef<Resolver<string> | null>(null);
+  const codeResolverRef = useRef<Resolver<string> | null>(null);
+  const passwordResolverRef = useRef<Resolver<string> | null>(null);
+  const phoneNumberRef = useRef<string>("");
+
+  // Refs for code-sent phase signaling
+  const codeSentResolveRef = useRef<(() => void) | null>(null);
+  const codeSentRejectRef = useRef<((err: Error) => void) | null>(null);
+
+  if (!supabaseUser) {
+    router.push("/auth");
+    return null;
+  }
+
+  /**
+   * Starts the full auth flow via client.start().
+   * Returns a promise that resolves when the CODE IS SENT (not full auth).
+   * Full auth completion continues in the background.
+   */
+  const startAuthFlow = useCallback(async (phone: string): Promise<void> => {
+    setTelegramAuthState({ error: undefined });
+    phoneNumberRef.current = phone;
+
+    // Promise that resolves when code is sent to user, or rejects on error
+    const codeSentPromise = new Promise<void>((resolve, reject) => {
+      codeSentResolveRef.current = resolve;
+      codeSentRejectRef.current = reject;
+    });
+
+    // Reset any stale/broken client singleton before fresh auth
+    const { resetClient } = await import("@/lib/telegram/client");
+    await resetClient();
+
+    // Connect to Telegram with timeout
+    let client: import("telegram").TelegramClient;
+    try {
+      client = await withTimeout(
+        connect(),
+        CONNECT_TIMEOUT_MS,
+        "Не удалось подключиться к Telegram. Проверьте интернет-соединение."
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Ошибка подключения";
+      setTelegramAuthState({ error: msg });
+      throw err; // PhoneInput catches this and stops loading
+    }
+
+    // Start full auth flow in background — resolves only after FULL auth
+    const authPromise = (async () => {
+      const { startTelegramAuth, getMe } = await import("@/lib/telegram/auth");
+      const { saveSession } = await import("@/lib/telegram/client");
+      const { saveTelegramSession } = await import("@/lib/supabase/session-store");
+
+      await startTelegramAuth(client, {
+        onPhoneNumber: async () => phone,
+        onCode: async () => {
+          // Code was sent! Signal PhoneInput to stop loading
+          codeSentResolveRef.current?.();
+          codeSentResolveRef.current = null;
+          codeSentRejectRef.current = null;
+
+          // Show code input UI
+          setTelegramAuthState({ step: "code", phoneNumber: phone });
+
+          // Wait for user to enter the code
+          return new Promise<string>((resolve) => {
+            codeResolverRef.current = resolve;
+          });
+        },
+        onPassword: async (hint?: string) => {
+          setTelegramAuthState({ step: "password", passwordHint: hint });
+          return new Promise<string>((resolve) => {
+            passwordResolverRef.current = resolve;
+          });
+        },
+        onError: (err: Error) => {
+          console.error("Telegram auth error:", err);
+          const errorMsg = err.message || "Ошибка авторизации";
+          setTelegramAuthState({ error: errorMsg });
+
+          // If code hasn't been sent yet, reject the codeSentPromise
+          if (codeSentRejectRef.current) {
+            codeSentRejectRef.current(err);
+            codeSentResolveRef.current = null;
+            codeSentRejectRef.current = null;
+          }
+        },
+      });
+
+      // Auth complete — save session and navigate
+      const me = await getMe(client);
+      const sessionString = saveSession();
+      await saveTelegramSession(
+        supabaseUser!.id,
+        sessionString,
+        supabaseUser!.id,
+        undefined,
+        phone.slice(-4)
+      );
+
+      setTelegramUser(me);
+      setTelegramConnected(true);
+      setTelegramAuthState({ step: "done" });
+      router.push("/chat");
+    })();
+
+    // Catch background auth errors (after code was sent)
+    authPromise.catch((err) => {
+      console.error("Auth flow error:", err);
+      setTelegramAuthState({
+        error: err instanceof Error ? err.message : "Ошибка авторизации",
+      });
+      // Reject codeSentPromise if it hasn't resolved yet
+      if (codeSentRejectRef.current) {
+        codeSentRejectRef.current(
+          err instanceof Error ? err : new Error("Ошибка авторизации")
+        );
+        codeSentResolveRef.current = null;
+        codeSentRejectRef.current = null;
+      }
+    });
+
+    // Await ONLY the code-sending phase (or error/timeout)
+    // This is what PhoneInput loading state waits for
+    await withTimeout(
+      codeSentPromise,
+      CONNECT_TIMEOUT_MS,
+      "Telegram не отвечает. Попробуйте позже."
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connect, supabaseUser]);
+
+  const handlePhoneSubmit = async (phone: string) => {
+    if (phoneResolverRef.current) {
+      phoneResolverRef.current(phone);
+      phoneResolverRef.current = null;
+    } else {
+      // Start auth flow — awaits only until code is sent (or error)
+      await startAuthFlow(phone);
+    }
+  };
+
+  const handleCodeSubmit = async (code: string) => {
+    if (codeResolverRef.current) {
+      setTelegramAuthState({ error: undefined });
+      codeResolverRef.current(code);
+      codeResolverRef.current = null;
+    }
+  };
+
+  const handlePasswordSubmit = async (password: string) => {
+    if (passwordResolverRef.current) {
+      setTelegramAuthState({ error: undefined });
+      passwordResolverRef.current(password);
+      passwordResolverRef.current = null;
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md">
+        <CardContent className="pt-6">
+          {telegramAuthState.step === "phone" && (
+            <PhoneInput
+              onSubmit={handlePhoneSubmit}
+              error={telegramAuthState.error}
+            />
+          )}
+          {telegramAuthState.step === "code" && (
+            <CodeInput
+              phoneNumber={phoneNumberRef.current}
+              onSubmit={handleCodeSubmit}
+              onBack={() => setTelegramAuthState({ step: "phone" })}
+              error={telegramAuthState.error}
+            />
+          )}
+          {telegramAuthState.step === "password" && (
+            <PasswordInput
+              hint={telegramAuthState.passwordHint}
+              onSubmit={handlePasswordSubmit}
+              error={telegramAuthState.error}
+            />
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/** Race a promise against a timeout */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(message)), ms)
+    ),
+  ]);
+}
