@@ -148,7 +148,7 @@ function formatMessageTime(raw: Date | string): string {
   });
 }
 
-/** Inline photo with lazy download */
+/** Inline photo with progressive loading: blur thumb → full quality, viewport-aware */
 function InlinePhoto({ chatId, messageId, width, height }: {
   chatId: string;
   messageId: number;
@@ -156,34 +156,62 @@ function InlinePhoto({ chatId, messageId, width, height }: {
   height?: number;
 }) {
   const { client } = useTelegramClient();
-  const [url, setUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [fullUrl, setFullUrl] = useState<string | null>(null);
+  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const { openMediaViewer } = useUIStore();
 
+  // Viewport detection — only start downloading when element is near viewport
   useEffect(() => {
-    if (!client) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setIsVisible(true); observer.disconnect(); } },
+      { rootMargin: "200px" } // start loading 200px before entering viewport (prefetch)
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Step 1: Load tiny thumbnail immediately when visible
+  useEffect(() => {
+    if (!client || !isVisible) return;
     let cancelled = false;
 
+    // Check if full quality already cached
     (async () => {
-      try {
-        const { downloadMessageMedia, getCachedMedia } = await import("@/lib/telegram/media-cache");
-        const cached = getCachedMedia(chatId, messageId);
-        if (cached) {
-          setUrl(cached);
-          setLoading(false);
-          return;
-        }
-        const result = await downloadMessageMedia(client, chatId, messageId);
-        if (!cancelled && result) setUrl(result);
-      } catch (err) {
-        console.error("Photo download failed:", err);
-      } finally {
-        if (!cancelled) setLoading(false);
+      const { getCachedMedia, getCachedThumb } = await import("@/lib/telegram/media-cache");
+      const cachedFull = getCachedMedia(chatId, messageId);
+      if (cachedFull) { setFullUrl(cachedFull); return; }
+
+      const cachedThumb = getCachedThumb(chatId, messageId);
+      if (cachedThumb) { setThumbUrl(cachedThumb); }
+
+      // Download tiny thumb (runs outside semaphore, very fast)
+      if (!cachedThumb) {
+        const { downloadThumb } = await import("@/lib/telegram/media-cache");
+        const thumb = await downloadThumb(client, chatId, messageId);
+        if (!cancelled && thumb) setThumbUrl(thumb);
       }
     })();
 
     return () => { cancelled = true; };
-  }, [client, chatId, messageId]);
+  }, [client, isVisible, chatId, messageId]);
+
+  // Step 2: Load full quality (through semaphore)
+  useEffect(() => {
+    if (!client || !isVisible || fullUrl) return;
+    let cancelled = false;
+
+    (async () => {
+      const { downloadMessageMedia } = await import("@/lib/telegram/media-cache");
+      const result = await downloadMessageMedia(client, chatId, messageId);
+      if (!cancelled && result) setFullUrl(result);
+    })();
+
+    return () => { cancelled = true; };
+  }, [client, isVisible, chatId, messageId, fullUrl]);
 
   const maxW = 320;
   const maxH = 400;
@@ -200,27 +228,32 @@ function InlinePhoto({ chatId, messageId, width, height }: {
     displayW = Math.round(displayW * scale);
   }
 
-  if (loading || !url) {
-    return (
-      <div
-        className="rounded-lg bg-muted/50 animate-pulse mb-1"
-        style={{ width: displayW, height: displayH }}
-      />
-    );
-  }
+  const displayUrl = fullUrl || thumbUrl;
 
   return (
-    <img
-      src={url}
-      alt=""
-      className="rounded-lg max-w-full cursor-pointer mb-1"
-      style={{ maxWidth: displayW, maxHeight: displayH }}
-      onClick={() => openMediaViewer(url)}
-    />
+    <div
+      ref={containerRef}
+      className="rounded-lg overflow-hidden mb-1 cursor-pointer"
+      style={{ width: displayW, height: displayH }}
+      onClick={() => fullUrl && openMediaViewer(fullUrl)}
+    >
+      {displayUrl ? (
+        <img
+          src={displayUrl}
+          alt=""
+          className={cn(
+            "w-full h-full object-cover transition-all duration-300",
+            !fullUrl && thumbUrl ? "blur-sm scale-105" : ""
+          )}
+        />
+      ) : (
+        <div className="w-full h-full bg-muted/50 animate-pulse" />
+      )}
+    </div>
   );
 }
 
-/** Video thumbnail with play button — downloads and plays on click */
+/** Video thumbnail with play button — viewport-aware, downloads and plays on click */
 function VideoThumbnail({ chatId, messageId, width, height, duration }: {
   chatId: string;
   messageId: number;
@@ -233,10 +266,24 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const { openMediaViewer } = useUIStore();
 
+  // Viewport detection
   useEffect(() => {
-    if (!client) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setIsVisible(true); observer.disconnect(); } },
+      { rootMargin: "200px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!client || !isVisible) return;
     let cancelled = false;
 
     (async () => {
@@ -258,7 +305,7 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
     })();
 
     return () => { cancelled = true; };
-  }, [client, chatId, messageId]);
+  }, [client, isVisible, chatId, messageId]);
 
   const maxW = 320;
   const maxH = 400;
@@ -305,6 +352,7 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
 
   return (
     <div
+      ref={containerRef}
       className="relative rounded-lg overflow-hidden mb-1 cursor-pointer"
       style={{ width: displayW, height: displayH }}
       onClick={handleClick}

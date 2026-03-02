@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useCallback, useState } from "react";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { MessageItem } from "./MessageItem";
@@ -12,10 +12,10 @@ import { useUIStore } from "@/store/ui";
 import { safeDate } from "@/lib/utils";
 import { useChatsStore } from "@/store/chats";
 import { Loader2 } from "lucide-react";
+import type { TelegramMessage } from "@/types/telegram";
 
 /** Format ISO date key (YYYY-MM-DD) for date separator in Russian */
 function formatDateSeparator(isoDate: string): string {
-  // Parse from ISO format: "2026-02-28" — universally supported
   const [y, m, d] = isoDate.split("-").map(Number);
   const date = new Date(y, m - 1, d);
   const now = new Date();
@@ -33,95 +33,137 @@ function formatDateSeparator(isoDate: string): string {
   });
 }
 
+type VirtualItem =
+  | { kind: "date"; date: string }
+  | { kind: "message"; message: TelegramMessage; isGrouped: boolean; showSender: boolean };
+
 export function MessageList() {
   const { selectedChatId } = useUIStore();
   const { dialogs } = useChatsStore();
   const { messages, isLoading, hasMore, loadMore } = useMessages(selectedChatId);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const prevMessageCount = useRef(0);
+  const parentRef = useRef<HTMLDivElement>(null);
   const isLoadingMoreRef = useRef(false);
-  const prevScrollHeightRef = useRef(0);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const prevCountRef = useRef(0);
 
   const dialog = dialogs.find((d) => d.id === selectedChatId);
-  const isGroup = dialog?.type === "group";
+  const isGroup = dialog?.type === "group" || dialog?.type === "channel";
 
-  // Helper to get the scroll viewport element
-  const getViewport = useCallback(() => {
-    const scrollRoot = scrollRef.current;
-    if (!scrollRoot) return null;
-    return scrollRoot.querySelector("[data-slot='scroll-area-viewport']") as HTMLElement | null;
-  }, []);
+  // Build flat virtual items list: date separators + messages
+  const items: VirtualItem[] = useMemo(() => {
+    const sorted = [...messages].sort(
+      (a, b) => safeDate(a.date).getTime() - safeDate(b.date).getTime()
+    );
 
-  // Handle scroll position after messages change
-  useEffect(() => {
-    if (isLoadingMoreRef.current && messages.length > prevMessageCount.current) {
-      // Older messages were prepended — restore scroll position
-      const viewport = getViewport();
-      if (viewport) {
-        const addedHeight = viewport.scrollHeight - prevScrollHeightRef.current;
-        viewport.scrollTop = addedHeight;
+    const result: VirtualItem[] = [];
+    let currentDate = "";
+    let prevMsg: TelegramMessage | null = null;
+
+    for (const msg of sorted) {
+      const md = safeDate(msg.date);
+      const dateStr = `${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, "0")}-${String(md.getDate()).padStart(2, "0")}`;
+
+      if (dateStr !== currentDate) {
+        currentDate = dateStr;
+        result.push({ kind: "date", date: dateStr });
+        prevMsg = null; // reset grouping after date separator
       }
-      isLoadingMoreRef.current = false;
-    } else if (prevMessageCount.current === 0 && messages.length > 0) {
-      // Initial load after chat switch — scroll to bottom
-      requestAnimationFrame(() => {
-        bottomRef.current?.scrollIntoView();
+
+      const isGrouped =
+        prevMsg !== null &&
+        prevMsg.senderId === msg.senderId &&
+        prevMsg.isOutgoing === msg.isOutgoing &&
+        safeDate(msg.date).getTime() - safeDate(prevMsg.date).getTime() < 60000;
+
+      result.push({
+        kind: "message",
+        message: msg,
+        isGrouped,
+        showSender: isGroup,
       });
-    } else if (messages.length > prevMessageCount.current && prevMessageCount.current > 0) {
-      // New message arrived at the bottom — auto-scroll only if near bottom
-      const viewport = getViewport();
-      if (viewport) {
-        const distFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      prevMsg = msg;
+    }
+
+    return result;
+  }, [messages, isGroup]);
+
+  // Virtualizer
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: (index) => {
+      const item = items[index];
+      if (item.kind === "date") return 40;
+      // Estimate message height based on content
+      const msg = item.message;
+      if (msg.media?.type === "photo" || msg.media?.type === "video") return 280;
+      if (msg.media?.type === "sticker") return 210;
+      if (msg.media?.type === "document") return 70;
+      const textLen = msg.text?.length || 0;
+      return Math.max(42, 42 + Math.floor(textLen / 40) * 20);
+    },
+    overscan: 15,
+    measureElement: (el) => el.getBoundingClientRect().height,
+  });
+
+  // Auto-scroll to bottom on initial load or new message
+  useEffect(() => {
+    if (items.length === 0) return;
+
+    if (prevCountRef.current === 0 && items.length > 0) {
+      // Initial load — jump to bottom
+      requestAnimationFrame(() => {
+        virtualizer.scrollToIndex(items.length - 1, { align: "end" });
+      });
+    } else if (
+      items.length > prevCountRef.current &&
+      !isLoadingMoreRef.current
+    ) {
+      // New message at bottom — auto-scroll if near bottom
+      const el = parentRef.current;
+      if (el) {
+        const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
         if (distFromBottom < 200) {
-          bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+          requestAnimationFrame(() => {
+            virtualizer.scrollToIndex(items.length - 1, { align: "end", behavior: "smooth" });
+          });
         }
       }
     }
-    prevMessageCount.current = messages.length;
-  }, [messages.length, getViewport]);
 
-  // Scroll to bottom on chat switch
+    if (isLoadingMoreRef.current && items.length > prevCountRef.current) {
+      isLoadingMoreRef.current = false;
+    }
+
+    prevCountRef.current = items.length;
+  }, [items.length, virtualizer]);
+
+  // Reset on chat switch
   useEffect(() => {
-    bottomRef.current?.scrollIntoView();
-    prevMessageCount.current = 0;
+    prevCountRef.current = 0;
     isLoadingMoreRef.current = false;
     setShowScrollBtn(false);
   }, [selectedChatId]);
 
-  // Wrapped loadMore that saves scroll state before loading
-  const handleLoadMore = useCallback(() => {
-    const viewport = getViewport();
-    if (viewport) {
-      prevScrollHeightRef.current = viewport.scrollHeight;
+  // Handle scroll: load more when near top, show/hide scroll button
+  const handleScroll = useCallback(() => {
+    const el = parentRef.current;
+    if (!el) return;
+
+    if (el.scrollTop < 150 && hasMore && !isLoading && !isLoadingMoreRef.current) {
       isLoadingMoreRef.current = true;
+      loadMore();
     }
-    loadMore();
-  }, [loadMore, getViewport]);
 
-  // Attach scroll listener to the ScrollArea viewport
-  useEffect(() => {
-    const viewport = getViewport();
-    if (!viewport) return;
-
-    const onScroll = () => {
-      // Load more when near top
-      if (viewport.scrollTop < 100 && hasMore && !isLoading && !isLoadingMoreRef.current) {
-        handleLoadMore();
-      }
-      // Show/hide scroll-to-bottom button
-      const distFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      setShowScrollBtn(distFromBottom > 300);
-    };
-
-    viewport.addEventListener("scroll", onScroll);
-    return () => viewport.removeEventListener("scroll", onScroll);
-  }, [hasMore, isLoading, handleLoadMore, getViewport]);
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollBtn(distFromBottom > 300);
+  }, [hasMore, isLoading, loadMore]);
 
   const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
+    if (items.length > 0) {
+      virtualizer.scrollToIndex(items.length - 1, { align: "end", behavior: "smooth" });
+    }
+  }, [items.length, virtualizer]);
 
   if (!selectedChatId) {
     return (
@@ -143,40 +185,31 @@ export function MessageList() {
     );
   }
 
-  // Sort messages by date ascending for display
-  const sorted = [...messages].sort(
-    (a, b) => safeDate(a.date).getTime() - safeDate(b.date).getTime()
-  );
-
-  // Group messages by date
-  const dateGroups: { date: string; messages: typeof sorted }[] = [];
-  let currentDate = "";
-  for (const msg of sorted) {
-    const md = safeDate(msg.date);
-    const dateStr = `${md.getFullYear()}-${String(md.getMonth() + 1).padStart(2, "0")}-${String(md.getDate()).padStart(2, "0")}`;
-    if (dateStr !== currentDate) {
-      currentDate = dateStr;
-      dateGroups.push({ date: dateStr, messages: [] });
-    }
-    dateGroups[dateGroups.length - 1].messages.push(msg);
-  }
+  const virtualItems = virtualizer.getVirtualItems();
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col">
-      {/* Pinned message banner */}
       <PinnedBanner chatId={selectedChatId} />
 
-      <ScrollArea
-        className="flex-1 min-h-0 bg-[image:var(--chat-pattern)] bg-repeat bg-[length:400px]"
-        ref={scrollRef}
+      <div
+        ref={parentRef}
+        onScroll={handleScroll}
+        className="flex-1 min-h-0 overflow-y-auto bg-[image:var(--chat-pattern)] bg-repeat bg-[length:400px]"
       >
-        <div className="p-4 max-w-3xl mx-auto">
+        <div
+          className="max-w-3xl mx-auto px-4 relative"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {/* Load more button at top */}
           {hasMore && (
-            <div className="flex justify-center py-2">
+            <div className="flex justify-center py-2 sticky top-0 z-10">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={handleLoadMore}
+                onClick={() => {
+                  isLoadingMoreRef.current = true;
+                  loadMore();
+                }}
                 disabled={isLoading}
               >
                 {isLoading ? (
@@ -188,39 +221,41 @@ export function MessageList() {
             </div>
           )}
 
-          {dateGroups.map((group) => (
-            <div key={group.date}>
-              <div className="flex justify-center my-3">
-                <span className="rounded-full bg-background/80 backdrop-blur-sm px-3 py-1 text-xs text-muted-foreground shadow-sm">
-                  {formatDateSeparator(group.date)}
-                </span>
-              </div>
-              {group.messages.map((msg, idx) => {
-                // Check if grouped with previous message
-                const prev = idx > 0 ? group.messages[idx - 1] : null;
-                const isGrouped =
-                  prev !== null &&
-                  prev.senderId === msg.senderId &&
-                  prev.isOutgoing === msg.isOutgoing &&
-                  safeDate(msg.date).getTime() - safeDate(prev.date).getTime() < 60000; // within 1 min
+          {virtualItems.map((vItem) => {
+            const item = items[vItem.index];
 
-                return (
+            return (
+              <div
+                key={vItem.key}
+                data-index={vItem.index}
+                ref={virtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  transform: `translateY(${vItem.start}px)`,
+                }}
+              >
+                {item.kind === "date" ? (
+                  <div className="flex justify-center my-3">
+                    <span className="rounded-full bg-background/80 backdrop-blur-sm px-3 py-1 text-xs text-muted-foreground shadow-sm">
+                      {formatDateSeparator(item.date)}
+                    </span>
+                  </div>
+                ) : (
                   <MessageItem
-                    key={`${msg.id}-${safeDate(msg.date).getTime()}`}
-                    message={msg}
-                    showSender={isGroup || dialog?.type === "channel"}
-                    isGrouped={isGrouped}
+                    message={item.message}
+                    showSender={item.showSender}
+                    isGrouped={item.isGrouped}
                   />
-                );
-              })}
-            </div>
-          ))}
-
-          <div ref={bottomRef} />
+                )}
+              </div>
+            );
+          })}
         </div>
-      </ScrollArea>
+      </div>
 
-      {/* Scroll to bottom button */}
       <ScrollToBottom
         visible={showScrollBtn}
         unreadCount={dialog?.unreadCount}
