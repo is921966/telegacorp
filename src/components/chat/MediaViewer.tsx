@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { X, Download } from "lucide-react";
 
 export function MediaViewer() {
-  const { isMediaViewerOpen, mediaViewerUrl, closeMediaViewer } = useUIStore();
+  const { isMediaViewerOpen, mediaViewerUrl, mediaViewerType, closeMediaViewer } = useUIStore();
 
   if (!mediaViewerUrl) return null;
 
@@ -22,7 +22,7 @@ export function MediaViewer() {
               onClick={() => {
                 const a = document.createElement("a");
                 a.href = mediaViewerUrl;
-                a.download = "media";
+                a.download = mediaViewerType === "video" ? "video" : "media";
                 a.click();
               }}
             >
@@ -37,12 +37,21 @@ export function MediaViewer() {
               <X className="h-5 w-5" />
             </Button>
           </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={mediaViewerUrl}
-            alt="Media"
-            className="max-w-full max-h-[85vh] object-contain"
-          />
+          {mediaViewerType === "video" ? (
+            <video
+              src={mediaViewerUrl}
+              controls
+              autoPlay
+              className="max-w-full max-h-[85vh] object-contain"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={mediaViewerUrl}
+              alt="Media"
+              className="max-w-full max-h-[85vh] object-contain"
+            />
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -11,6 +11,7 @@ interface UIStore {
   isGroupInfoOpen: boolean;
   isMediaViewerOpen: boolean;
   mediaViewerUrl: string | null;
+  mediaViewerType: "image" | "video";
   replyToMessageId: number | null;
   editingMessageId: number | null;
   theme: "light" | "dark";
@@ -22,7 +23,7 @@ interface UIStore {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleGroupInfo: () => void;
-  openMediaViewer: (url: string) => void;
+  openMediaViewer: (url: string, type?: "image" | "video") => void;
   closeMediaViewer: () => void;
   setReplyTo: (messageId: number | null) => void;
   setEditing: (messageId: number | null) => void;
@@ -39,6 +40,7 @@ export const useUIStore = create<UIStore>((set) => ({
   isGroupInfoOpen: false,
   isMediaViewerOpen: false,
   mediaViewerUrl: null,
+  mediaViewerType: "image" as "image" | "video",
   replyToMessageId: null,
   editingMessageId: null,
   theme: "dark",
@@ -77,8 +79,8 @@ export const useUIStore = create<UIStore>((set) => ({
   toggleGroupInfo: () =>
     set((state) => ({ isGroupInfoOpen: !state.isGroupInfoOpen })),
 
-  openMediaViewer: (url) =>
-    set({ isMediaViewerOpen: true, mediaViewerUrl: url }),
+  openMediaViewer: (url, type = "image") =>
+    set({ isMediaViewerOpen: true, mediaViewerUrl: url, mediaViewerType: type }),
 
   closeMediaViewer: () =>
     set({ isMediaViewerOpen: false, mediaViewerUrl: null }),

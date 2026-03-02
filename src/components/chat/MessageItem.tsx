@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import type { TelegramMessage, TextEntity } from "@/types/telegram";
 import { cn, safeDate } from "@/lib/utils";
 import {
   Check,
   CheckCheck,
   FileText,
+  Download,
   Mic,
   Eye,
   MessageSquare,
@@ -219,7 +220,7 @@ function InlinePhoto({ chatId, messageId, width, height }: {
   );
 }
 
-/** Video thumbnail with play button overlay */
+/** Video thumbnail with play button — downloads and plays on click */
 function VideoThumbnail({ chatId, messageId, width, height, duration }: {
   chatId: string;
   messageId: number;
@@ -228,8 +229,11 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
   duration?: number;
 }) {
   const { client } = useTelegramClient();
-  const [url, setUrl] = useState<string | null>(null);
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
+  const { openMediaViewer } = useUIStore();
 
   useEffect(() => {
     if (!client) return;
@@ -240,12 +244,12 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
         const { downloadMessageMedia, getCachedMedia } = await import("@/lib/telegram/media-cache");
         const cached = getCachedMedia(chatId, messageId);
         if (cached) {
-          setUrl(cached);
+          setThumbUrl(cached);
           setLoading(false);
           return;
         }
         const result = await downloadMessageMedia(client, chatId, messageId);
-        if (!cancelled && result) setUrl(result);
+        if (!cancelled && result) setThumbUrl(result);
       } catch (err) {
         console.error("Video thumb failed:", err);
       } finally {
@@ -278,17 +282,48 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  const handleClick = async () => {
+    if (videoUrl) {
+      openMediaViewer(videoUrl, "video");
+      return;
+    }
+    if (!client || downloading) return;
+    setDownloading(true);
+    try {
+      const { downloadDocumentFile } = await import("@/lib/telegram/media-cache");
+      const result = await downloadDocumentFile(client, chatId, messageId);
+      if (result) {
+        setVideoUrl(result.url);
+        openMediaViewer(result.url, "video");
+      }
+    } catch (err) {
+      console.error("Video download error:", err);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   return (
-    <div className="relative rounded-lg overflow-hidden mb-1 cursor-pointer" style={{ width: displayW, height: displayH }}>
-      {loading || !url ? (
+    <div
+      className="relative rounded-lg overflow-hidden mb-1 cursor-pointer"
+      style={{ width: displayW, height: displayH }}
+      onClick={handleClick}
+    >
+      {loading || !thumbUrl ? (
         <div className="w-full h-full bg-muted/50 animate-pulse" />
       ) : (
-        <img src={url} alt="" className="w-full h-full object-cover" />
+        <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
       )}
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="h-12 w-12 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
-          <Play className="h-6 w-6 text-white fill-white ml-0.5" />
-        </div>
+        {downloading ? (
+          <div className="h-12 w-12 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
+            <div className="h-6 w-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <div className="h-12 w-12 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
+            <Play className="h-6 w-6 text-white fill-white ml-0.5" />
+          </div>
+        )}
       </div>
       {duration != null && duration > 0 && (
         <span className="absolute bottom-1.5 right-1.5 bg-black/60 text-white text-[10px] font-medium px-1.5 py-0.5 rounded">
@@ -410,25 +445,168 @@ function ForwardedHeader({ forwardFrom, isOutgoing }: {
   );
 }
 
-/** Media indicator fallback (for voice, document) */
-function MediaIndicator({ type, fileName }: { type: string; fileName?: string }) {
-  switch (type) {
-    case "voice":
-      return (
-        <div className="flex items-center gap-1.5 text-xs text-blue-400 mb-1">
-          <Mic className="h-4 w-4" /> Голосовое сообщение
-        </div>
-      );
-    case "document":
-      return (
-        <div className="flex items-center gap-1.5 text-xs text-blue-400 mb-1 p-2 bg-black/10 rounded-lg">
-          <FileText className="h-5 w-5 shrink-0" />
-          <span className="truncate max-w-[200px]">{fileName || "Документ"}</span>
-        </div>
-      );
-    default:
-      return null;
-  }
+/** Clickable document attachment with on-demand download */
+function InlineDocument({ chatId, messageId, fileName, fileSize, mimeType }: {
+  chatId: string;
+  messageId: number;
+  fileName?: string;
+  fileSize?: number;
+  mimeType?: string;
+}) {
+  const { client } = useTelegramClient();
+  const [downloading, setDownloading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const formatSize = (bytes?: number) => {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleClick = async () => {
+    if (!client || downloading) return;
+    setDownloading(true);
+    setProgress(0);
+
+    try {
+      const { downloadDocumentFile } = await import("@/lib/telegram/media-cache");
+      const result = await downloadDocumentFile(client, chatId, messageId, (received, total) => {
+        setProgress(Math.round((received / total) * 100));
+      });
+
+      if (result) {
+        // Viewable types: open in new tab; others: trigger download
+        const viewable = /^(image|video|audio|text\/|application\/pdf)/.test(result.mimeType);
+        if (viewable) {
+          window.open(result.url, "_blank");
+        } else {
+          const a = document.createElement("a");
+          a.href = result.url;
+          a.download = result.fileName;
+          a.click();
+        }
+      }
+    } catch (err) {
+      console.error("Document download error:", err);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={downloading}
+      className="flex items-center gap-2.5 text-xs text-blue-400 mb-1 p-2.5 bg-black/10 rounded-lg hover:bg-black/20 transition-colors w-full text-left cursor-pointer"
+    >
+      <div className="relative h-10 w-10 shrink-0 rounded-lg bg-blue-500/20 flex items-center justify-center">
+        {downloading ? (
+          <span className="text-[10px] font-bold">{progress}%</span>
+        ) : (
+          <FileText className="h-5 w-5" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate font-medium text-sm text-foreground">
+          {fileName || "Документ"}
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          {formatSize(fileSize)}
+          {mimeType && ` · ${mimeType.split("/").pop()?.toUpperCase()}`}
+        </p>
+      </div>
+      {!downloading && <Download className="h-4 w-4 shrink-0 opacity-50" />}
+    </button>
+  );
+}
+
+/** Voice message with playback */
+function InlineVoice({ chatId, messageId, duration }: {
+  chatId: string;
+  messageId: number;
+  duration?: number;
+}) {
+  const { client } = useTelegramClient();
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const formatDuration = (sec?: number) => {
+    if (!sec) return "0:00";
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const handlePlay = async () => {
+    if (playing && audioRef.current) {
+      audioRef.current.pause();
+      setPlaying(false);
+      return;
+    }
+
+    if (audioUrl && audioRef.current) {
+      audioRef.current.play();
+      setPlaying(true);
+      return;
+    }
+
+    if (!client || loading) return;
+    setLoading(true);
+
+    try {
+      const { downloadDocumentFile } = await import("@/lib/telegram/media-cache");
+      const result = await downloadDocumentFile(client, chatId, messageId);
+      if (result) {
+        setAudioUrl(result.url);
+        const audio = new Audio(result.url);
+        audioRef.current = audio;
+        audio.onended = () => setPlaying(false);
+        audio.play();
+        setPlaying(true);
+      }
+    } catch (err) {
+      console.error("Voice download error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handlePlay}
+      className="flex items-center gap-2 text-xs text-blue-400 mb-1 py-1 cursor-pointer"
+    >
+      <div className="h-8 w-8 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0">
+        {loading ? (
+          <div className="h-3 w-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+        ) : playing ? (
+          <div className="flex gap-0.5 items-center">
+            <div className="w-0.5 h-3 bg-blue-400 rounded-full" />
+            <div className="w-0.5 h-3 bg-blue-400 rounded-full" />
+          </div>
+        ) : (
+          <Play className="h-3.5 w-3.5 fill-blue-400 ml-0.5" />
+        )}
+      </div>
+      {/* Waveform placeholder */}
+      <div className="flex items-center gap-[2px] h-4">
+        {Array.from({ length: 20 }).map((_, i) => (
+          <div
+            key={i}
+            className={cn(
+              "w-[2px] rounded-full transition-colors",
+              playing ? "bg-blue-400" : "bg-blue-400/40"
+            )}
+            style={{ height: `${4 + Math.sin(i * 0.8) * 8 + Math.random() * 4}px` }}
+          />
+        ))}
+      </div>
+      <span className="text-[11px] text-muted-foreground ml-1">{formatDuration(duration)}</span>
+    </button>
+  );
 }
 
 /** Reply quote block */
@@ -516,8 +694,23 @@ export function MessageItem({ message, showSender, isGrouped }: MessageItemProps
           />
         );
       case "voice":
+        return (
+          <InlineVoice
+            chatId={message.chatId}
+            messageId={message.id}
+            duration={message.media.duration}
+          />
+        );
       case "document":
-        return <MediaIndicator type={message.media.type} fileName={message.media.fileName} />;
+        return (
+          <InlineDocument
+            chatId={message.chatId}
+            messageId={message.id}
+            fileName={message.media.fileName}
+            fileSize={message.media.size}
+            mimeType={message.media.mimeType}
+          />
+        );
       default:
         return null;
     }

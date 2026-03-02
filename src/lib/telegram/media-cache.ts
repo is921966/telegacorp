@@ -138,3 +138,63 @@ export async function downloadMessageMedia(
 export function getCachedMedia(chatId: string, messageId: number): string | undefined {
   return memoryCache.get(`${chatId}:${messageId}`) || undefined;
 }
+
+/**
+ * Download a document/file on demand and return a Blob URL for viewing/saving.
+ * Unlike downloadMessageMedia, this downloads the FULL file (not just thumbnail).
+ */
+export async function downloadDocumentFile(
+  client: TelegramClient,
+  chatId: string,
+  messageId: number,
+  onProgress?: (received: number, total: number) => void
+): Promise<{ url: string; fileName: string; mimeType: string } | null> {
+  try {
+    const msgs = await client.getMessages(chatId, { ids: [messageId] });
+    const msg = msgs[0];
+    if (!msg || !(msg instanceof Api.Message) || !msg.media) return null;
+
+    let mime = "application/octet-stream";
+    let fileName = "file";
+
+    if (msg.media instanceof Api.MessageMediaDocument) {
+      const doc = (msg.media as Api.MessageMediaDocument).document;
+      if (doc instanceof Api.Document) {
+        mime = doc.mimeType || mime;
+        const nameAttr = doc.attributes?.find(
+          (a) => a instanceof Api.DocumentAttributeFilename
+        ) as Api.DocumentAttributeFilename | undefined;
+        if (nameAttr) fileName = nameAttr.fileName;
+      }
+    } else if (msg.media instanceof Api.MessageMediaPhoto) {
+      mime = "image/jpeg";
+      fileName = `photo_${messageId}.jpg`;
+    }
+
+    const buffer = await client.downloadMedia(msg.media, {
+      progressCallback: onProgress
+        ? (progress: number) => onProgress(Math.round(progress * 100), 100)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        : undefined as any,
+    });
+
+    if (!buffer) return null;
+
+    let blob: Blob;
+    if (typeof buffer === "string") {
+      // base64 string
+      const binary = atob(buffer.replace(/^data:[^;]+;base64,/, ""));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      blob = new Blob([bytes], { type: mime });
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      blob = new Blob([buffer as any], { type: mime });
+    }
+
+    return { url: URL.createObjectURL(blob), fileName, mimeType: mime };
+  } catch (err) {
+    console.error("Document download failed:", chatId, messageId, err);
+    return null;
+  }
+}
