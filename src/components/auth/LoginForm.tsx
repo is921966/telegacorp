@@ -71,6 +71,9 @@ export function LoginForm() {
           <p className="text-sm text-muted-foreground">
             Corporate Telegram Client
           </p>
+          <p className="text-xs text-muted-foreground/60">
+            v{process.env.NEXT_PUBLIC_APP_VERSION} build {process.env.NEXT_PUBLIC_BUILD_NUMBER} ({process.env.NEXT_PUBLIC_BUILD_DATE})
+          </p>
         </CardHeader>
         <CardContent>
           <Tabs value={tab} onValueChange={setTab}>
