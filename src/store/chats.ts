@@ -105,8 +105,3 @@ export const useChatsStore = create<ChatsStore>()(
     }
   )
 );
-
-// Debug: expose store on window for inspection
-if (typeof window !== "undefined") {
-  (window as unknown as Record<string, unknown>).__chatsStore = useChatsStore;
-}

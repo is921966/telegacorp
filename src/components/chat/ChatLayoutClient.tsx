@@ -7,12 +7,14 @@ import { BottomNav } from "@/components/chat/BottomNav";
 import { FolderSidebar } from "@/components/chat/FolderSidebar";
 import { ViewRouter } from "@/components/chat/ViewRouter";
 import { useViewUrlSync } from "@/hooks/useViewUrlSync";
+import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { useUIStore } from "@/store/ui";
 import { cn } from "@/lib/utils";
 
 export function ChatLayoutClient() {
   const { isSidebarOpen, selectedChatId, currentView } = useUIStore();
   useViewUrlSync();
+  useRealtimeUpdates();
 
   // On mobile, hide the sidebar when:
   // 1. A chat is selected (and sidebar is closed) — original behavior

@@ -3,9 +3,7 @@
 import { useCallback, useEffect } from "react";
 import { useMessagesStore } from "@/store/messages";
 import { useChatsStore } from "@/store/chats";
-import { useUIStore } from "@/store/ui";
 import { useTelegramClient } from "./useTelegramClient";
-import type { TelegramDialog } from "@/types/telegram";
 
 export function useMessages(chatId: string | null) {
   const { client, isConnected } = useTelegramClient();
@@ -119,65 +117,6 @@ export function useMessages(chatId: string | null) {
       loadMessages(messages[0].id);
     }
   }, [messages, hasMore, chatId, loadMessages]);
-
-  // Subscribe to real-time updates
-  useEffect(() => {
-    if (!client || !isConnected) return;
-
-    let cleanup = false;
-    const unsubscribers: Array<() => void> = [];
-
-    import("@/lib/telegram/updates").then(
-      ({ subscribeToNewMessages, subscribeToEditedMessages, subscribeToDeletedMessages }) => {
-        if (cleanup) return;
-
-        unsubscribers.push(
-          subscribeToNewMessages(client, (msg) => {
-            addMessage(msg.chatId, msg);
-
-            // Update dialog in chat list: lastMessage + unreadCount + re-sort
-            const mediaType = msg.media?.type as NonNullable<NonNullable<TelegramDialog["lastMessage"]>["mediaType"]> | undefined;
-            const isViewingChat = useUIStore.getState().selectedChatId === msg.chatId;
-
-            useChatsStore.getState().bumpDialog(
-              msg.chatId,
-              {
-                text: msg.text || "",
-                date: msg.date instanceof Date ? msg.date : new Date(msg.date),
-                senderId: msg.senderId,
-                senderName: msg.senderName,
-                isOutgoing: msg.isOutgoing || false,
-                isRead: msg.isOutgoing || isViewingChat,
-                mediaType,
-              },
-              // Increment unread only for incoming messages when NOT viewing that chat
-              !msg.isOutgoing && !isViewingChat
-            );
-          })
-        );
-
-        unsubscribers.push(
-          subscribeToEditedMessages(client, (msg) => {
-            updateMessage(msg.chatId, msg.id, { text: msg.text, isEdited: true });
-          })
-        );
-
-        unsubscribers.push(
-          subscribeToDeletedMessages(client, (deletedChatId, ids) => {
-            removeMessages(deletedChatId, ids);
-          })
-        );
-      }
-    );
-
-    return () => {
-      cleanup = true;
-      // Remove all event handlers from the client to prevent handler leak
-      for (const unsub of unsubscribers) {
-        unsub();
-      }
-    };
-  }, [client, isConnected, addMessage, updateMessage, removeMessages]);
 
   // Load messages when chat changes
   useEffect(() => {

@@ -76,18 +76,34 @@ export function ChatList() {
   }, [dialogs, filter, selectedFolder, folders]);
 
   // Sort matching Telegram's behavior:
-  // - "All chats": preserve API order (already correct: pinned first in user's order, then by activity)
-  // - Folder view: folder's pinnedPeers first (in their order), then rest by API order
+  // - Pinned dialogs first (in their API order)
+  // - Non-pinned: by lastMessage date (newest first), with apiOrder as fallback
+  // Using lastMessage.date instead of apiOrder ensures real-time bumps are always
+  // reflected correctly, even if setDialogs() overwrites apiOrder values.
   const sorted = useMemo(() => {
     const currentFolder = folders.find((f) => f.id === selectedFolder);
     const pinnedIds = currentFolder?.pinnedPeerIds || [];
 
+    /** Get timestamp from dialog's lastMessage for sorting */
+    const getTime = (d: typeof filtered[0]): number => {
+      const raw = d.lastMessage?.date;
+      if (!raw) return 0;
+      return raw instanceof Date ? raw.getTime() : new Date(raw).getTime();
+    };
+
     if (selectedFolder === 0 || pinnedIds.length === 0) {
-      // "All chats" or folder without pinned — API order is already correct
-      return [...filtered].sort((a, b) => a.apiOrder - b.apiOrder);
+      // "All chats" or folder without pinned
+      return [...filtered].sort((a, b) => {
+        // Pinned first (by apiOrder among themselves)
+        if (a.isPinned && b.isPinned) return a.apiOrder - b.apiOrder;
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        // Non-pinned: newest message first
+        const timeDiff = getTime(b) - getTime(a);
+        return timeDiff !== 0 ? timeDiff : a.apiOrder - b.apiOrder;
+      });
     }
 
-    // Folder with pinned peers: pinned first (in pinnedPeerIds order), rest by apiOrder
+    // Folder with pinned peers: pinned first (in pinnedPeerIds order), rest by date
     return [...filtered].sort((a, b) => {
       const aPinIdx = pinnedIds.indexOf(a.id);
       const bPinIdx = pinnedIds.indexOf(b.id);
@@ -96,7 +112,9 @@ export function ChatList() {
 
       if (aIsFolderPinned !== bIsFolderPinned) return aIsFolderPinned ? -1 : 1;
       if (aIsFolderPinned && bIsFolderPinned) return aPinIdx - bPinIdx;
-      return a.apiOrder - b.apiOrder;
+      // Non-pinned: newest message first
+      const timeDiff = getTime(b) - getTime(a);
+      return timeDiff !== 0 ? timeDiff : a.apiOrder - b.apiOrder;
     });
   }, [filtered, selectedFolder, folders]);
 
