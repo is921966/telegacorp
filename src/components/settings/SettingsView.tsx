@@ -95,6 +95,10 @@ export function SettingsView() {
             <LogOut className="h-4 w-4 mr-2" />
             Sign Out
           </Button>
+
+          <p className="text-center text-xs text-muted-foreground/60 pt-2">
+            v{process.env.NEXT_PUBLIC_APP_VERSION} build {process.env.NEXT_PUBLIC_BUILD_NUMBER} ({process.env.NEXT_PUBLIC_BUILD_DATE})
+          </p>
         </div>
       </div>
     </div>

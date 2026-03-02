@@ -242,14 +242,30 @@ export async function getDialogs(
     }
 
     // Check mute status from notifySettings on the raw dialog
+    // Use duck-typing to avoid instanceof issues with GramJS deserialization
     const rawDialog = dialog.dialog;
-    if (rawDialog instanceof Api.Dialog) {
-      const ns = rawDialog.notifySettings;
-      if (ns instanceof Api.PeerNotifySettings) {
-        if (ns.muteUntil) {
-          isMuted = ns.muteUntil > Math.floor(Date.now() / 1000);
-        }
-        if (ns.silent) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ns = (rawDialog as any)?.notifySettings;
+    if (ns) {
+      // GramJS may use camelCase or snake_case depending on version
+      const muteUntil = ns.muteUntil ?? ns.mute_until;
+      if (muteUntil && Number(muteUntil) > Math.floor(Date.now() / 1000)) {
+        isMuted = true;
+      }
+      // "Без звука" — silent can be Bool, boolean, or truthy value
+      if (ns.silent) {
+        isMuted = true;
+      }
+    }
+
+    // Additional: check GramJS high-level dialog properties
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const dlg = dialog as any;
+    if (!isMuted && (dlg.archived === false || dlg.archived === undefined)) {
+      // Check if GramJS Dialog object exposes mute info directly
+      if (dlg.dialog?.notifySettings?.className === "PeerNotifySettings") {
+        const settings = dlg.dialog.notifySettings;
+        if (settings.silent || (settings.muteUntil && Number(settings.muteUntil) > Math.floor(Date.now() / 1000))) {
           isMuted = true;
         }
       }
