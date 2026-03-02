@@ -177,10 +177,38 @@ export async function getMessages(
   limit = 50,
   offsetId?: number
 ): Promise<TelegramMessage[]> {
-  await rateLimiter.throttle("getMessages", 500);
+  // Per-chat rate limiting so switching chats isn't blocked
+  await rateLimiter.throttle(`getMessages:${chatId}`, 300);
+
+  // Resolve entity from GramJS cache. After session restore the cache is
+  // empty until dialogs are loaded; in that case we throw so the caller
+  // (useMessages) can retry once the entity cache has been populated.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let entity: any;
+  try {
+    entity = await client.getInputEntity(chatId);
+  } catch {
+    // Not in cache — try the raw chatId as a last resort.
+    // GramJS may still resolve it internally for some entity types.
+    try {
+      // Quick probe: attempt getMessages with raw chatId.
+      // If GramJS can resolve it, great; if not, the throw below
+      // will let useMessages retry after dialogs load.
+      const probe = await client.getMessages(chatId, { limit: 1 });
+      if (probe && probe.length >= 0) {
+        // GramJS resolved it — use chatId directly
+        entity = chatId;
+      }
+    } catch {
+      throw new Error(
+        `Entity not found for chat ${chatId}. ` +
+        `Dialogs may not have loaded yet — will retry automatically.`
+      );
+    }
+  }
 
   const messages = await callWithFloodWait(() =>
-    client.getMessages(chatId, {
+    client.getMessages(entity, {
       limit,
       offsetId,
     })

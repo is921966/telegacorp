@@ -1,9 +1,16 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useMessagesStore } from "@/store/messages";
 import { useChatsStore } from "@/store/chats";
 import { useTelegramClient } from "./useTelegramClient";
+
+/**
+ * Track which chats have been loaded in THIS browser session.
+ * Persisted store may have stale/empty data from a previous session —
+ * we always want to fetch fresh messages at least once per session.
+ */
+const loadedThisSession = new Set<string>();
 
 export function useMessages(chatId: string | null) {
   const { client, isConnected } = useTelegramClient();
@@ -22,9 +29,16 @@ export function useMessages(chatId: string | null) {
 
   const messages = chatId ? messagesByChat[chatId] || [] : [];
 
+  // Prevent concurrent initial loads for the same chat
+  const loadingChatRef = useRef<string | null>(null);
+
   const loadMessages = useCallback(
     async (offsetId?: number) => {
       if (!client || !isConnected || !chatId) return;
+
+      // Guard against concurrent initial loads (not offset-based pagination)
+      if (!offsetId && loadingChatRef.current === chatId) return;
+      if (!offsetId) loadingChatRef.current = chatId;
 
       setLoading(true);
       try {
@@ -35,13 +49,15 @@ export function useMessages(chatId: string | null) {
           prependMessages(chatId, result);
         } else {
           setMessages(chatId, result);
+          loadedThisSession.add(chatId);
         }
 
         setHasMore(chatId, result.length >= 50);
       } catch (err) {
-        console.error("Failed to load messages:", err);
+        console.error("Failed to load messages for chat", chatId, err);
       } finally {
         setLoading(false);
+        if (!offsetId) loadingChatRef.current = null;
       }
     },
     [client, isConnected, chatId, setMessages, prependMessages, setLoading, setHasMore]
@@ -118,12 +134,25 @@ export function useMessages(chatId: string | null) {
     }
   }, [messages, hasMore, chatId, loadMessages]);
 
-  // Load messages when chat changes
+  // When dialogs load, GramJS entity cache gets populated.
+  // We subscribe to dialogs count so that failed message loads
+  // (due to empty entity cache) get retried automatically.
+  const dialogsCount = useChatsStore((s) => s.dialogs.length);
+
+  // Load messages when chat changes, client connects, or dialogs load.
+  // Always fetch fresh data at least once per session per chat,
+  // regardless of what may be persisted in localStorage.
   useEffect(() => {
-    if (chatId && isConnected && !messagesByChat[chatId]) {
+    if (!chatId || !isConnected) return;
+
+    const hasCachedMessages = messagesByChat[chatId]?.length > 0;
+    const loadedBefore = loadedThisSession.has(chatId);
+
+    // Load if: never loaded this session, OR no cached messages at all
+    if (!loadedBefore || !hasCachedMessages) {
       loadMessages();
     }
-  }, [chatId, isConnected, messagesByChat, loadMessages]);
+  }, [chatId, isConnected, loadMessages, messagesByChat, dialogsCount]);
 
   return {
     messages,
