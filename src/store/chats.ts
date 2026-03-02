@@ -2,6 +2,14 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { TelegramDialog } from "@/types/telegram";
 
+/** Safely convert various date representations to milliseconds */
+function dateToMs(d: Date | string | number | undefined | null): number {
+  if (!d) return 0;
+  if (d instanceof Date) return d.getTime();
+  if (typeof d === "number") return d;
+  return new Date(d).getTime();
+}
+
 interface ChatsStore {
   dialogs: TelegramDialog[];
   isLoading: boolean;
@@ -11,6 +19,12 @@ interface ChatsStore {
   lastFetchedAt: number;
 
   setDialogs: (dialogs: TelegramDialog[]) => void;
+  /**
+   * Merge incoming dialogs with existing store data, preserving real-time
+   * updates (lastMessage, unreadCount) when the store version is newer.
+   * Used for background loads that shouldn't overwrite bumpDialog changes.
+   */
+  mergeDialogs: (incoming: TelegramDialog[]) => void;
   /** Append new dialogs to the end, assigning apiOrder continuation */
   appendDialogs: (newDialogs: TelegramDialog[]) => void;
   updateDialog: (id: string, updates: Partial<TelegramDialog>) => void;
@@ -41,6 +55,36 @@ export const useChatsStore = create<ChatsStore>()(
       lastFetchedAt: 0,
 
       setDialogs: (dialogs) => set({ dialogs, isLoading: false, error: null, lastFetchedAt: Date.now() }),
+
+      mergeDialogs: (incoming) =>
+        set((state) => {
+          // Build lookup of existing dialogs (may have real-time bumps)
+          const existingMap = new Map(state.dialogs.map((d) => [d.id, d]));
+
+          const merged = incoming.map((inc, i) => {
+            const existing = existingMap.get(inc.id);
+            if (!existing) return { ...inc, apiOrder: i };
+
+            const incTime = dateToMs(inc.lastMessage?.date);
+            const exTime = dateToMs(existing.lastMessage?.date);
+
+            // If existing dialog has a newer lastMessage (from real-time bump),
+            // preserve its lastMessage & unreadCount but take everything else
+            // from the fresh API data (name, avatar, isPinned, etc.)
+            if (exTime > incTime) {
+              return {
+                ...inc,
+                apiOrder: i,
+                lastMessage: existing.lastMessage,
+                unreadCount: Math.max(inc.unreadCount, existing.unreadCount),
+              };
+            }
+
+            return { ...inc, apiOrder: i };
+          });
+
+          return { dialogs: merged, lastFetchedAt: Date.now() };
+        }),
 
       appendDialogs: (newDialogs) =>
         set((state) => {

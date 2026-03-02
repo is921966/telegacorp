@@ -20,7 +20,7 @@ export function useDialogs() {
   const { client, isConnected } = useTelegramClient();
   const {
     dialogs, isLoading, isLoadingMore, hasMore, error, lastFetchedAt,
-    setDialogs, appendDialogs, setLoading, setLoadingMore, setHasMore, setError, updateDialog,
+    setDialogs, mergeDialogs, appendDialogs, setLoading, setLoadingMore, setHasMore, setError, updateDialog,
   } = useChatsStore();
   const extendedLoadDone = useRef(false);
   const loadInProgress = useRef(false);
@@ -57,7 +57,10 @@ export function useDialogs() {
           try {
             const all = await getDialogs(client, detectedLimits.background);
             if (all.length > first.length) {
-              setDialogs(all);
+              // Use mergeDialogs to preserve any real-time bumpDialog
+              // changes (lastMessage, unreadCount) that arrived since
+              // the initial setDialogs(first) call.
+              mergeDialogs(all);
             }
             if (all.length < detectedLimits.background) {
               setHasMore(false);

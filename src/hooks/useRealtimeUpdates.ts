@@ -48,6 +48,16 @@ export function useRealtimeUpdates() {
       if (!client || cancelled) return;
       if (subscribedRef.current) return; // already subscribed
 
+      // Wait for dialogs to be loaded (at least the initial batch)
+      // so that bumpDialog can find the target dialog for incoming events.
+      // Without this, events arriving before dialogs load are silently dropped.
+      for (let attempt = 0; attempt < 30; attempt++) {
+        if (cancelled) return;
+        if (useChatsStore.getState().dialogs.length > 0) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+
+      if (cancelled) return;
       subscribedRef.current = true;
 
       const {
