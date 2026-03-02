@@ -2,7 +2,7 @@
   "name": "Telegram Corp",
   "short_name": "TG Corp",
   "description": "Corporate Telegram Client",
-  "start_url": "/chat",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
