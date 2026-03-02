@@ -3,7 +3,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
 import { MessageItem } from "./MessageItem";
 import { ScrollToBottom } from "./ScrollToBottom";
 import { PinnedBanner } from "./PinnedBanner";
@@ -200,24 +199,10 @@ export function MessageList() {
           className="max-w-3xl mx-auto px-4 relative"
           style={{ height: virtualizer.getTotalSize() }}
         >
-          {/* Load more button at top */}
-          {hasMore && (
+          {/* Loading spinner at top during infinite scroll */}
+          {hasMore && isLoading && (
             <div className="flex justify-center py-2 sticky top-0 z-10">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  isLoadingMoreRef.current = true;
-                  loadMore();
-                }}
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  "Загрузить ранее"
-                )}
-              </Button>
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             </div>
           )}
 

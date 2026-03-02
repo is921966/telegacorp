@@ -139,6 +139,27 @@ export function useMessages(chatId: string | null) {
   // (due to empty entity cache) get retried automatically.
   const dialogsCount = useChatsStore((s) => s.dialogs.length);
 
+  // Track the dialog's lastMessage timestamp for the current chat.
+  // When periodic dialog sync updates this to a newer value than our
+  // latest stored message, we know real-time events were missed.
+  const dialogLastMsgTs = useChatsStore((s) => {
+    if (!chatId) return 0;
+    const dialog = s.dialogs.find((d) => d.id === chatId);
+    if (!dialog?.lastMessage?.date) return 0;
+    const d = dialog.lastMessage.date;
+    return d instanceof Date ? d.getTime() : new Date(d).getTime();
+  });
+
+  // Track the latest stored message timestamp for the current chat.
+  // Uses a targeted selector so we only re-render when this value changes.
+  const latestStoredMsgTs = useMessagesStore((s) => {
+    if (!chatId) return 0;
+    const stored = s.messagesByChat[chatId];
+    if (!stored || stored.length === 0) return 0;
+    const d = stored[stored.length - 1].date;
+    return d instanceof Date ? d.getTime() : new Date(d).getTime();
+  });
+
   // Load messages when chat changes, client connects, or dialogs load.
   // Always fetch fresh data at least once per session per chat,
   // regardless of what may be persisted in localStorage.
@@ -153,6 +174,20 @@ export function useMessages(chatId: string | null) {
       loadMessages();
     }
   }, [chatId, isConnected, loadMessages, messagesByChat, dialogsCount]);
+
+  // Stale message detection: when the dialog store reports a newer
+  // lastMessage than our latest stored message, GramJS real-time events
+  // were missed (e.g. _updateLoop timeout). Re-fetch to catch up.
+  useEffect(() => {
+    if (!chatId || !isConnected) return;
+    if (!loadedThisSession.has(chatId)) return; // initial load handles this
+    if (latestStoredMsgTs <= 0 || dialogLastMsgTs <= 0) return;
+
+    // Dialog has a message >2s newer than our latest — we're missing messages
+    if (dialogLastMsgTs - latestStoredMsgTs > 2_000) {
+      loadMessages();
+    }
+  }, [chatId, isConnected, dialogLastMsgTs, latestStoredMsgTs, loadMessages]);
 
   return {
     messages,
