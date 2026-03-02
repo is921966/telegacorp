@@ -1,6 +1,6 @@
 import type { TelegramClient } from "telegram";
 import { Api } from "telegram";
-import { getMediaFromIDB, putMediaToIDB } from "@/lib/idb-media-cache";
+import { getMediaFromIDB, putMediaToIDB, getVideoFromIDB, putVideoToIDB } from "@/lib/idb-media-cache";
 import { isSlowConnection } from "@/lib/network";
 
 // ---------------------------------------------------------------------------
@@ -20,6 +20,10 @@ const memoryCache = new Map<string, string>();
 
 /** Separate cache for low-quality thumbnails (not persisted to IDB) */
 const thumbCache = new Map<string, string>();
+
+/** In-memory cache for video blob URLs (session-only, max 10 for memory) */
+const videoBlobUrlCache = new Map<string, { url: string; fileName: string; mimeType: string }>();
+const MAX_VIDEO_MEMORY_ENTRIES = 10;
 
 // ---------------------------------------------------------------------------
 // Download semaphore — limits parallel downloads
@@ -287,9 +291,21 @@ export function getCachedThumb(chatId: string, messageId: number): string | unde
 // 4. Full document download (on-demand, for files/video playback)
 // ---------------------------------------------------------------------------
 
+/** Evict oldest entry from videoBlobUrlCache when over limit */
+function evictVideoMemoryCache() {
+  if (videoBlobUrlCache.size <= MAX_VIDEO_MEMORY_ENTRIES) return;
+  const firstKey = videoBlobUrlCache.keys().next().value;
+  if (firstKey) {
+    const entry = videoBlobUrlCache.get(firstKey);
+    if (entry) URL.revokeObjectURL(entry.url);
+    videoBlobUrlCache.delete(firstKey);
+  }
+}
+
 /**
  * Download a document/file on demand and return a Blob URL for viewing/saving.
- * Unlike downloadMessageMedia, this downloads the FULL file (not just thumbnail).
+ * Videos use iterDownload for per-chunk progress and lower peak memory.
+ * Videos are cached in IDB (as Blob) and in-memory (as blob URL).
  */
 export async function downloadDocumentFile(
   client: TelegramClient,
@@ -297,8 +313,28 @@ export async function downloadDocumentFile(
   messageId: number,
   onProgress?: (received: number, total: number) => void
 ): Promise<{ url: string; fileName: string; mimeType: string } | null> {
+  const key = `${chatId}:${messageId}`;
+
+  // Tier 1: in-memory video blob URL cache
+  const memCached = videoBlobUrlCache.get(key);
+  if (memCached) return memCached;
+
+  // Tier 2: IDB video blob cache
+  const idbCached = await getVideoFromIDB(key);
+  if (idbCached) {
+    const url = URL.createObjectURL(idbCached.blob);
+    const entry = { url, fileName: idbCached.fileName, mimeType: idbCached.mimeType };
+    videoBlobUrlCache.set(key, entry);
+    evictVideoMemoryCache();
+    return entry;
+  }
+
   try {
     return await enqueueDownload(async () => {
+      // Re-check caches after waiting in queue
+      const memCached2 = videoBlobUrlCache.get(key);
+      if (memCached2) return memCached2;
+
       const msgs = await client.getMessages(chatId, { ids: [messageId] });
       const msg = msgs[0];
       if (!msg || !(msg instanceof Api.Message) || !msg.media) return null;
@@ -320,30 +356,122 @@ export async function downloadDocumentFile(
         fileName = `photo_${messageId}.jpg`;
       }
 
-      const buffer = await client.downloadMedia(msg.media, {
-        progressCallback: onProgress
-          ? (progress: number) => onProgress(Math.round(progress * 100), 100)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          : undefined as any,
-      });
-
-      if (!buffer) return null;
-
+      const isVideo = mime.startsWith("video/");
       let blob: Blob;
-      if (typeof buffer === "string") {
-        const binary = atob(buffer.replace(/^data:[^;]+;base64,/, ""));
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        blob = new Blob([bytes], { type: mime });
+
+      if (isVideo && msg.media instanceof Api.MessageMediaDocument) {
+        // Use iterDownload for chunk-by-chunk progress and lower peak RAM
+        const { downloadVideoAsBlob } = await import("@/lib/telegram/media");
+        const result = await downloadVideoAsBlob(client, msg.media, onProgress);
+        if (!result) return null;
+        blob = result.blob;
+        mime = result.mimeType;
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        blob = new Blob([buffer as any], { type: mime });
+        // Non-video: use existing downloadMedia path
+        const buffer = await client.downloadMedia(msg.media, {
+          progressCallback: onProgress
+            ? (progress: number) => onProgress(Math.round(progress * 100), 100)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            : undefined as any,
+        });
+        if (!buffer) return null;
+
+        if (typeof buffer === "string") {
+          const binary = atob(buffer.replace(/^data:[^;]+;base64,/, ""));
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          blob = new Blob([bytes], { type: mime });
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          blob = new Blob([buffer as any], { type: mime });
+        }
       }
 
-      return { url: URL.createObjectURL(blob), fileName, mimeType: mime };
+      const url = URL.createObjectURL(blob);
+      const entry = { url, fileName, mimeType: mime };
+
+      // Cache video blobs in IDB and memory
+      if (isVideo) {
+        videoBlobUrlCache.set(key, entry);
+        evictVideoMemoryCache();
+        putVideoToIDB(key, blob, fileName, mime).catch(() => {});
+      }
+
+      return entry;
     });
   } catch (err) {
     console.error("Document download failed:", chatId, messageId, err);
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Video preloading (background, on viewport visibility)
+// ---------------------------------------------------------------------------
+
+const preloadingSet = new Set<string>();
+
+/**
+ * Preload a video when its thumbnail becomes visible.
+ * - Skips on slow connections
+ * - Downloads up to 2MB; if video fits, caches it entirely
+ * - For larger videos, warms up the MTProto connection
+ */
+export async function preloadVideoStart(
+  client: TelegramClient,
+  chatId: string,
+  messageId: number
+): Promise<void> {
+  if (isSlowConnection()) return;
+
+  const key = `${chatId}:${messageId}`;
+  if (videoBlobUrlCache.has(key)) return;
+  if (preloadingSet.has(key)) return;
+
+  const idbCached = await getVideoFromIDB(key);
+  if (idbCached) return;
+
+  preloadingSet.add(key);
+  try {
+    const msgs = await client.getMessages(chatId, { ids: [messageId] });
+    const msg = msgs[0];
+    if (!msg || !(msg instanceof Api.Message) || !msg.media) return;
+    if (!(msg.media instanceof Api.MessageMediaDocument)) return;
+
+    const doc = (msg.media as Api.MessageMediaDocument).document;
+    if (!(doc instanceof Api.Document)) return;
+    if (!doc.mimeType?.startsWith("video/")) return;
+
+    const PRELOAD_BUDGET = 2 * 1024 * 1024; // 2MB
+    const totalSize = Number(doc.size ?? Infinity);
+    const chunks: Uint8Array[] = [];
+    let bytesReceived = 0;
+
+    const iter = client.iterDownload({
+      file: msg.media,
+      requestSize: 512 * 1024,
+    });
+
+    for await (const chunk of iter) {
+      chunks.push(new Uint8Array(chunk));
+      bytesReceived += chunk.length;
+      if (bytesReceived >= PRELOAD_BUDGET) break;
+    }
+
+    // Only cache if we got the full file (video <= 2MB)
+    if (bytesReceived >= totalSize) {
+      const blob = new Blob(chunks as BlobPart[], { type: doc.mimeType });
+      const fileName = doc.attributes?.find(
+        (a) => a instanceof Api.DocumentAttributeFilename
+      ) as Api.DocumentAttributeFilename | undefined;
+      await putVideoToIDB(key, blob, fileName?.fileName || "video", doc.mimeType);
+      const url = URL.createObjectURL(blob);
+      videoBlobUrlCache.set(key, { url, fileName: fileName?.fileName || "video", mimeType: doc.mimeType });
+      evictVideoMemoryCache();
+    }
+  } catch {
+    // Non-critical background task
+  } finally {
+    preloadingSet.delete(key);
   }
 }

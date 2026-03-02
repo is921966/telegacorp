@@ -266,6 +266,7 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { openMediaViewer } = useUIStore();
@@ -288,15 +289,20 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
 
     (async () => {
       try {
-        const { downloadMessageMedia, getCachedMedia } = await import("@/lib/telegram/media-cache");
+        const { downloadMessageMedia, getCachedMedia, preloadVideoStart } = await import("@/lib/telegram/media-cache");
         const cached = getCachedMedia(chatId, messageId);
         if (cached) {
           setThumbUrl(cached);
           setLoading(false);
+          // Still preload the video in background
+          preloadVideoStart(client, chatId, messageId).catch(() => {});
           return;
         }
         const result = await downloadMessageMedia(client, chatId, messageId);
         if (!cancelled && result) setThumbUrl(result);
+
+        // Background preload: start downloading small videos ahead of click
+        preloadVideoStart(client, chatId, messageId).catch(() => {});
       } catch (err) {
         console.error("Video thumb failed:", err);
       } finally {
@@ -336,9 +342,12 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
     }
     if (!client || downloading) return;
     setDownloading(true);
+    setDownloadProgress(0);
     try {
       const { downloadDocumentFile } = await import("@/lib/telegram/media-cache");
-      const result = await downloadDocumentFile(client, chatId, messageId);
+      const result = await downloadDocumentFile(client, chatId, messageId, (received, total) => {
+        setDownloadProgress(total > 0 ? Math.round((received / total) * 100) : 0);
+      });
       if (result) {
         setVideoUrl(result.url);
         openMediaViewer(result.url, "video");
@@ -364,8 +373,21 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
       )}
       <div className="absolute inset-0 flex items-center justify-center">
         {downloading ? (
-          <div className="h-12 w-12 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
-            <div className="h-6 w-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          <div className="h-12 w-12 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm relative">
+            <svg className="absolute inset-0 -rotate-90" viewBox="0 0 48 48">
+              <circle cx="24" cy="24" r="20" stroke="white" strokeOpacity="0.3" strokeWidth="3" fill="none" />
+              <circle
+                cx="24" cy="24" r="20"
+                stroke="white" strokeWidth="3" fill="none"
+                strokeDasharray={`${2 * Math.PI * 20}`}
+                strokeDashoffset={`${2 * Math.PI * 20 * (1 - downloadProgress / 100)}`}
+                strokeLinecap="round"
+                className="transition-[stroke-dashoffset] duration-200"
+              />
+            </svg>
+            <span className="text-white text-[9px] font-bold relative z-10">
+              {downloadProgress}%
+            </span>
           </div>
         ) : (
           <div className="h-12 w-12 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm">
