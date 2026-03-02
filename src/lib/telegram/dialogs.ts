@@ -351,12 +351,26 @@ export async function markAsRead(
 ): Promise<void> {
   await rateLimiter.throttle("markAsRead", 500);
   const peer = await client.getInputEntity(chatId);
-  await client.invoke(
-    new Api.messages.ReadHistory({
-      peer,
-      maxId: 0,
-    })
-  );
+
+  // Channels/supergroups use channels.ReadHistory, others use messages.ReadHistory
+  if (peer instanceof Api.InputPeerChannel) {
+    await client.invoke(
+      new Api.channels.ReadHistory({
+        channel: new Api.InputChannel({
+          channelId: peer.channelId,
+          accessHash: peer.accessHash,
+        }),
+        maxId: 0,
+      })
+    );
+  } else {
+    await client.invoke(
+      new Api.messages.ReadHistory({
+        peer,
+        maxId: 0,
+      })
+    );
+  }
 }
 
 /** Get pinned messages for a chat */
