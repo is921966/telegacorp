@@ -23,8 +23,16 @@ interface ChatsStore {
    * Merge incoming dialogs with existing store data, preserving real-time
    * updates (lastMessage, unreadCount) when the store version is newer.
    * Used for background loads that shouldn't overwrite bumpDialog changes.
+   * REPLACES the entire dialog array — use only when incoming contains ALL dialogs.
    */
   mergeDialogs: (incoming: TelegramDialog[]) => void;
+  /**
+   * Sync a partial batch of dialogs with the store (e.g., top 100).
+   * Updates existing dialogs in-place if the incoming version is newer,
+   * adds new dialogs, but NEVER removes dialogs not in the batch.
+   * Used for periodic catch-up syncs.
+   */
+  syncDialogs: (incoming: TelegramDialog[]) => void;
   /** Append new dialogs to the end, assigning apiOrder continuation */
   appendDialogs: (newDialogs: TelegramDialog[]) => void;
   updateDialog: (id: string, updates: Partial<TelegramDialog>) => void;
@@ -84,6 +92,57 @@ export const useChatsStore = create<ChatsStore>()(
           });
 
           return { dialogs: merged, lastFetchedAt: Date.now() };
+        }),
+
+      syncDialogs: (incoming) =>
+        set((state) => {
+          // Build a map of incoming updates
+          const incomingMap = new Map(incoming.map((d) => [d.id, d]));
+          let changed = false;
+
+          // Update existing dialogs in-place
+          const updated = state.dialogs.map((existing) => {
+            const inc = incomingMap.get(existing.id);
+            if (!inc) return existing; // not in this batch — keep as-is
+
+            incomingMap.delete(existing.id); // mark as processed
+
+            const incTime = dateToMs(inc.lastMessage?.date);
+            const exTime = dateToMs(existing.lastMessage?.date);
+
+            // If incoming has newer data, use it (update lastMessage, unreadCount, etc.)
+            if (incTime > exTime) {
+              changed = true;
+              return {
+                ...existing,
+                lastMessage: inc.lastMessage,
+                unreadCount: inc.unreadCount,
+                isPinned: inc.isPinned,
+                isMuted: inc.isMuted,
+              };
+            }
+
+            // If unreadCount changed (e.g., marked as read on another device)
+            if (inc.unreadCount !== existing.unreadCount) {
+              changed = true;
+              return { ...existing, unreadCount: inc.unreadCount };
+            }
+
+            return existing;
+          });
+
+          // Add any new dialogs not already in the store
+          const newDialogs: TelegramDialog[] = [];
+          for (const [, inc] of incomingMap) {
+            newDialogs.push({ ...inc, apiOrder: updated.length + newDialogs.length });
+          }
+
+          if (!changed && newDialogs.length === 0) return state;
+
+          return {
+            dialogs: newDialogs.length > 0 ? [...updated, ...newDialogs] : updated,
+            lastFetchedAt: Date.now(),
+          };
         }),
 
       appendDialogs: (newDialogs) =>
