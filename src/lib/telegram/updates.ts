@@ -10,6 +10,39 @@ type DeleteHandler = (chatId: string, messageIds: number[]) => void;
 /** Cleanup function returned by subscribe methods. Removes the event handler from the client. */
 export type Unsubscribe = () => void;
 
+/** Media types used in dialog lastMessage preview */
+type DialogMediaType = "photo" | "video" | "document" | "voice" | "sticker" | "gif" | "audio" | "contact" | "location" | "poll";
+
+/** Extract a simplified media type from a message for dialog preview */
+function extractMediaType(msg: Api.Message): DialogMediaType | undefined {
+  const media = msg.media;
+  if (!media) return undefined;
+
+  if (media instanceof Api.MessageMediaPhoto) return "photo";
+  if (media instanceof Api.MessageMediaDocument) {
+    const doc = (media as Api.MessageMediaDocument).document;
+    if (doc instanceof Api.Document) {
+      const isSticker = doc.attributes?.some((a) => a instanceof Api.DocumentAttributeSticker);
+      if (isSticker) return "sticker";
+      const isVoice = doc.attributes?.some(
+        (a) => a instanceof Api.DocumentAttributeAudio && (a as Api.DocumentAttributeAudio).voice
+      );
+      if (isVoice) return "voice";
+      const isAudio = doc.attributes?.some((a) => a instanceof Api.DocumentAttributeAudio);
+      if (isAudio) return "audio";
+      const isAnimated = doc.attributes?.some((a) => a instanceof Api.DocumentAttributeAnimated);
+      if (isAnimated) return "gif";
+      const isVideo = doc.attributes?.some((a) => a instanceof Api.DocumentAttributeVideo);
+      if (isVideo) return "video";
+      return "document";
+    }
+  }
+  if (media instanceof Api.MessageMediaContact) return "contact";
+  if (media instanceof Api.MessageMediaGeo || media instanceof Api.MessageMediaGeoLive) return "location";
+  if (media instanceof Api.MessageMediaPoll) return "poll";
+  return undefined;
+}
+
 /**
  * Convert a Peer (PeerUser/PeerChat/PeerChannel) to dialog ID string.
  * Must match the format used in dialogs.ts: dialog.id!.toString()
@@ -31,33 +64,70 @@ export function peerToDialogId(peer: Api.TypePeer | undefined): string {
   return "";
 }
 
+/** Build a TelegramMessage from a raw Api.Message and call handler */
+function dispatchMessage(msg: Api.Message, handler: MessageHandler): void {
+  const chatId = peerToDialogId(msg.peerId);
+  if (!chatId) return;
+
+  // Extract sender name from GramJS's _sender property
+  let senderName: string | undefined;
+  if (msg.fromId instanceof Api.PeerUser) {
+    const sender = (msg as unknown as { _sender?: Api.User })._sender;
+    if (sender) {
+      const first = sender.firstName || "";
+      const last = sender.lastName || "";
+      senderName = (first + " " + last).trim() || sender.username || undefined;
+    }
+  }
+
+  // Extract media type for dialog preview
+  const mediaType = extractMediaType(msg);
+
+  handler({
+    id: msg.id,
+    chatId,
+    senderId: msg.senderId?.toString(),
+    senderName,
+    text: msg.message || "",
+    date: new Date((msg.date || 0) * 1000),
+    isOutgoing: msg.out || false,
+    replyToId: msg.replyTo?.replyToMsgId,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    media: mediaType ? ({ type: mediaType } as any) : undefined,
+  });
+}
+
 export function subscribeToNewMessages(
   client: TelegramClient,
   handler: MessageHandler
 ): Unsubscribe {
-  const callback = (event: { message?: Api.Message }) => {
+  // 1) NewMessage event — handles UpdateNewMessage (private chats & groups)
+  const newMsgCallback = (event: { message?: Api.Message }) => {
     const msg = event.message;
     if (!msg) return;
-
-    const chatId = peerToDialogId(msg.peerId);
-    if (!chatId) return;
-
-    handler({
-      id: msg.id,
-      chatId,
-      senderId: msg.senderId?.toString(),
-      text: msg.message || "",
-      date: new Date((msg.date || 0) * 1000),
-      isOutgoing: msg.out || false,
-      replyToId: msg.replyTo?.replyToMsgId,
-    });
+    dispatchMessage(msg, handler);
   };
 
-  const event = new NewMessage({});
-  client.addEventHandler(callback, event);
+  const newMsgEvent = new NewMessage({});
+  client.addEventHandler(newMsgCallback, newMsgEvent);
+
+  // 2) Raw event — catches UpdateNewChannelMessage for channels/supergroups
+  //    that NewMessage may miss. Duplicates are ignored by addMessage (dedup by id).
+  const rawCallback = (update: Api.TypeUpdate) => {
+    if (update instanceof Api.UpdateNewChannelMessage) {
+      const msg = update.message;
+      if (msg instanceof Api.Message) {
+        dispatchMessage(msg, handler);
+      }
+    }
+  };
+
+  const rawEvent = new Raw({});
+  client.addEventHandler(rawCallback, rawEvent);
 
   return () => {
-    client.removeEventHandler(callback, event);
+    client.removeEventHandler(newMsgCallback, newMsgEvent);
+    client.removeEventHandler(rawCallback, rawEvent);
   };
 }
 

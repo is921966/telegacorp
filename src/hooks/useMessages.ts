@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect } from "react";
 import { useMessagesStore } from "@/store/messages";
+import { useChatsStore } from "@/store/chats";
+import { useUIStore } from "@/store/ui";
 import { useTelegramClient } from "./useTelegramClient";
+import type { TelegramDialog } from "@/types/telegram";
 
 export function useMessages(chatId: string | null) {
   const { client, isConnected } = useTelegramClient();
@@ -71,6 +74,19 @@ export function useMessages(chatId: string | null) {
           replyToId,
         };
         addMessage(chatId, msg);
+
+        // Bump dialog to top with our sent message
+        useChatsStore.getState().bumpDialog(
+          chatId,
+          {
+            text: msg.text || "",
+            date: msg.date instanceof Date ? msg.date : new Date(msg.date),
+            senderId: msg.senderId,
+            isOutgoing: true,
+            isRead: false,
+          },
+          false
+        );
       }
     },
     [client, chatId, addMessage]
@@ -118,6 +134,25 @@ export function useMessages(chatId: string | null) {
         unsubscribers.push(
           subscribeToNewMessages(client, (msg) => {
             addMessage(msg.chatId, msg);
+
+            // Update dialog in chat list: lastMessage + unreadCount + re-sort
+            const mediaType = msg.media?.type as NonNullable<NonNullable<TelegramDialog["lastMessage"]>["mediaType"]> | undefined;
+            const isViewingChat = useUIStore.getState().selectedChatId === msg.chatId;
+
+            useChatsStore.getState().bumpDialog(
+              msg.chatId,
+              {
+                text: msg.text || "",
+                date: msg.date instanceof Date ? msg.date : new Date(msg.date),
+                senderId: msg.senderId,
+                senderName: msg.senderName,
+                isOutgoing: msg.isOutgoing || false,
+                isRead: msg.isOutgoing || isViewingChat,
+                mediaType,
+              },
+              // Increment unread only for incoming messages when NOT viewing that chat
+              !msg.isOutgoing && !isViewingChat
+            );
           })
         );
 

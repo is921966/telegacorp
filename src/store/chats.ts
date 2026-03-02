@@ -14,6 +14,15 @@ interface ChatsStore {
   /** Append new dialogs to the end, assigning apiOrder continuation */
   appendDialogs: (newDialogs: TelegramDialog[]) => void;
   updateDialog: (id: string, updates: Partial<TelegramDialog>) => void;
+  /**
+   * Update dialog's lastMessage and optionally increment unreadCount.
+   * Moves non-pinned dialogs to the top of the list (right after pinned).
+   */
+  bumpDialog: (
+    chatId: string,
+    lastMessage: TelegramDialog["lastMessage"],
+    incrementUnread: boolean
+  ) => void;
   setLoading: (loading: boolean) => void;
   setLoadingMore: (loading: boolean) => void;
   setHasMore: (hasMore: boolean) => void;
@@ -49,6 +58,40 @@ export const useChatsStore = create<ChatsStore>()(
             d.id === id ? { ...d, ...updates } : d
           ),
         })),
+
+      bumpDialog: (chatId, lastMessage, incrementUnread) =>
+        set((state) => {
+          const idx = state.dialogs.findIndex((d) => d.id === chatId);
+          if (idx === -1) return state; // unknown chat — skip
+
+          const dialog = state.dialogs[idx];
+          const updated: TelegramDialog = {
+            ...dialog,
+            lastMessage,
+            unreadCount: incrementUnread
+              ? dialog.unreadCount + 1
+              : dialog.unreadCount,
+          };
+
+          // Pinned dialogs stay in place — just update lastMessage
+          if (dialog.isPinned) {
+            const newDialogs = [...state.dialogs];
+            newDialogs[idx] = updated;
+            return { dialogs: newDialogs };
+          }
+
+          // Non-pinned: move to top of non-pinned section, re-assign apiOrder
+          const pinned = state.dialogs.filter((d) => d.isPinned);
+          const nonPinned = state.dialogs.filter(
+            (d) => !d.isPinned && d.id !== chatId
+          );
+          const result = [...pinned, updated, ...nonPinned].map((d, i) => ({
+            ...d,
+            apiOrder: i,
+          }));
+
+          return { dialogs: result };
+        }),
 
       setLoading: (loading) => set({ isLoading: loading }),
       setLoadingMore: (loading) => set({ isLoadingMore: loading }),
