@@ -824,7 +824,7 @@ function ReactionBar({ reactions }: { reactions: TelegramMessage["reactions"] })
 
 export function MessageItem({ message, showSender, isGrouped }: MessageItemProps) {
   const isOutgoing = message.isOutgoing;
-  const { setReplyTo } = useUIStore();
+  const { setReplyTo, openCommentThread } = useUIStore();
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
 
@@ -953,7 +953,13 @@ export function MessageItem({ message, showSender, isGrouped }: MessageItemProps
 
         {/* Comments count with commenter avatars (channel posts) */}
         {(message.commentsCount != null && message.commentsCount > 0) && (
-          <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-current/10">
+          <div
+            className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-current/10 cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              openCommentThread(message.chatId, message.id);
+            }}
+          >
             {/* Commenter avatar placeholders */}
             <div className="flex -space-x-1.5">
               {Array.from({ length: Math.min(message.commentsCount, 3) }).map((_, i) => (
@@ -969,7 +975,7 @@ export function MessageItem({ message, showSender, isGrouped }: MessageItemProps
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-1 text-xs text-blue-400 cursor-pointer hover:underline">
+            <div className="flex items-center gap-1 text-xs text-blue-400 hover:underline">
               <MessageSquare className="h-3 w-3" />
               <span>{message.commentsCount} комментариев</span>
             </div>

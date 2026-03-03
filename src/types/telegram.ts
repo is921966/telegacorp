@@ -107,6 +107,8 @@ export interface TelegramMessage {
   reactions?: TelegramReaction[];
   /** Number of comments (for channel posts with linked discussion) */
   commentsCount?: number;
+  /** Linked discussion group chat ID (for channel posts with comments) */
+  discussionChatId?: string;
   /** Views count for channel posts */
   views?: number;
   /** Grouped media album ID */

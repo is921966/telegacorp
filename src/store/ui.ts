@@ -17,6 +17,7 @@ interface UIStore {
   replyToMessageId: number | null;
   editingMessageId: number | null;
   theme: "light" | "dark";
+  commentThread: { chatId: string; messageId: number } | null;
 
   setCurrentView: (view: ViewType) => void;
   selectChat: (chatId: string | null) => void;
@@ -30,6 +31,8 @@ interface UIStore {
   setReplyTo: (messageId: number | null) => void;
   setEditing: (messageId: number | null) => void;
   setTheme: (theme: "light" | "dark") => void;
+  openCommentThread: (chatId: string, messageId: number) => void;
+  closeCommentThread: () => void;
   reset: () => void;
 }
 
@@ -48,6 +51,7 @@ export const useUIStore = create<UIStore>((set) => ({
   replyToMessageId: null,
   editingMessageId: null,
   theme: "dark",
+  commentThread: null,
 
   setCurrentView: (view) =>
     set((state) => ({
@@ -70,6 +74,7 @@ export const useUIStore = create<UIStore>((set) => ({
       currentView: "chats" as ViewType,
       isSidebarOpen: !chatId,
       isGroupInfoOpen: false,
+      commentThread: null,
     });
   },
 
@@ -108,6 +113,8 @@ export const useUIStore = create<UIStore>((set) => ({
 
   setReplyTo: (messageId) => set({ replyToMessageId: messageId }),
   setEditing: (messageId) => set({ editingMessageId: messageId }),
+  openCommentThread: (chatId, messageId) => set({ commentThread: { chatId, messageId } }),
+  closeCommentThread: () => set({ commentThread: null }),
   setTheme: (theme) => {
     if (typeof document !== "undefined") {
       document.documentElement.classList.toggle("dark", theme === "dark");
@@ -129,5 +136,6 @@ export const useUIStore = create<UIStore>((set) => ({
       mediaViewerChatId: null,
       replyToMessageId: null,
       editingMessageId: null,
+      commentThread: null,
     }),
 }));

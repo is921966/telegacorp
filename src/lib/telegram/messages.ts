@@ -206,10 +206,14 @@ function mapApiMessage(
   }
 
   let commentsCount: number | undefined;
+  let discussionChatId: string | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const replies = (msg as any).replies;
   if (replies && replies.comments) {
     commentsCount = replies.replies || 0;
+    if (replies.channelId) {
+      discussionChatId = `-100${replies.channelId}`;
+    }
   }
 
   return {
@@ -230,6 +234,7 @@ function mapApiMessage(
     isPinned: msg.pinned || false,
     reactions: extractReactions(msg),
     commentsCount,
+    discussionChatId,
     views: msg.views,
     groupedId: msg.groupedId?.toString(),
     entities: extractEntities(msg),
@@ -358,5 +363,39 @@ export async function deleteMessages(
         revoke,
       })
     )
+  );
+}
+
+/** Fetch comments (replies) for a channel post */
+export async function getComments(
+  client: TelegramClient,
+  chatId: string,
+  msgId: number,
+  limit = 50,
+  offsetId?: number
+): Promise<TelegramMessage[]> {
+  await rateLimiter.throttle("getComments", 300);
+
+  const entity = await client.getInputEntity(chatId);
+  const result = await callWithFloodWait(() =>
+    client.invoke(
+      new Api.messages.GetReplies({
+        peer: entity,
+        msgId,
+        offsetId: offsetId || 0,
+        addOffset: 0,
+        limit,
+        maxId: 0,
+        minId: 0,
+        hash: BigInt(0) as any,
+      })
+    )
+  );
+
+  if (!result || !("messages" in result)) return [];
+
+  return mapMessages(
+    result.messages as Api.Message[],
+    chatId
   );
 }
