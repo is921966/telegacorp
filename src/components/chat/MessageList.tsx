@@ -34,21 +34,62 @@ function formatDateSeparator(isoDate: string): string {
 
 type VirtualItem =
   | { kind: "date"; date: string }
+  | { kind: "unread-divider"; count: number }
   | { kind: "message"; message: TelegramMessage; isGrouped: boolean; showSender: boolean };
 
 export function MessageList() {
   const { selectedChatId } = useUIStore();
   const { dialogs } = useChatsStore();
-  const { messages, isLoading, hasMore, loadMore } = useMessages(selectedChatId);
+  const {
+    messages,
+    isLoading,
+    hasMore,
+    hasNewer,
+    loadMore,
+    loadNewer,
+    loadMessages,
+    markChatAsRead,
+  } = useMessages(selectedChatId);
   const parentRef = useRef<HTMLDivElement>(null);
   const isLoadingMoreRef = useRef(false);
+  const isLoadingNewerRef = useRef(false);
+  /** Suppress scroll-triggered pagination during initial scroll-to-divider */
+  const initialScrollDoneRef = useRef(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const prevCountRef = useRef(0);
+  /** Debounce timer for progressive mark-as-read */
+  const markAsReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Highest message ID for which markAsRead has been sent — prevents duplicate calls */
+  const markedUpToRef = useRef(0);
+  /** Frozen unread state at chat-open time — prevents divider from vanishing when markAsRead fires */
+  const frozenUnreadRef = useRef<{
+    chatId: string | null;
+    readInboxMaxId?: number;
+    unreadCount: number;
+  }>({ chatId: null, unreadCount: 0 });
 
   const dialog = dialogs.find((d) => d.id === selectedChatId);
   const isGroup = dialog?.type === "group" || dialog?.type === "channel";
+  const readInboxMaxId = dialog?.readInboxMaxId;
+  const unreadCount = dialog?.unreadCount ?? 0;
 
-  // Build flat virtual items list: date separators + messages
+  // Freeze unread state when chat changes so the divider persists after markAsRead
+  if (selectedChatId !== frozenUnreadRef.current.chatId) {
+    frozenUnreadRef.current = {
+      chatId: selectedChatId,
+      readInboxMaxId,
+      unreadCount,
+    };
+  } else if (
+    frozenUnreadRef.current.unreadCount === 0 &&
+    unreadCount > 0 &&
+    readInboxMaxId
+  ) {
+    // Dialog data arrived after initial render
+    frozenUnreadRef.current = { chatId: selectedChatId, readInboxMaxId, unreadCount };
+  }
+
+  // Build flat virtual items list: date separators + unread divider + messages
   const items: VirtualItem[] = useMemo(() => {
     const sorted = [...messages].sort(
       (a, b) => safeDate(a.date).getTime() - safeDate(b.date).getTime()
@@ -57,6 +98,7 @@ export function MessageList() {
     const result: VirtualItem[] = [];
     let currentDate = "";
     let prevMsg: TelegramMessage | null = null;
+    let unreadDividerInserted = false;
 
     for (const msg of sorted) {
       const md = safeDate(msg.date);
@@ -66,6 +108,20 @@ export function MessageList() {
         currentDate = dateStr;
         result.push({ kind: "date", date: dateStr });
         prevMsg = null; // reset grouping after date separator
+      }
+
+      // Insert unread divider before the first unread message (using frozen values
+      // so the divider persists after markAsRead sets live unreadCount to 0)
+      if (
+        !unreadDividerInserted &&
+        frozenUnreadRef.current.readInboxMaxId &&
+        frozenUnreadRef.current.unreadCount > 0 &&
+        msg.id > frozenUnreadRef.current.readInboxMaxId &&
+        !msg.isOutgoing
+      ) {
+        unreadDividerInserted = true;
+        result.push({ kind: "unread-divider", count: frozenUnreadRef.current.unreadCount });
+        prevMsg = null; // reset grouping after divider
       }
 
       const isGrouped =
@@ -84,7 +140,14 @@ export function MessageList() {
     }
 
     return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- frozenUnreadRef is intentionally stable
   }, [messages, isGroup]);
+
+  // Index of the unread divider (for initial scroll targeting)
+  const unreadDividerIndex = useMemo(
+    () => items.findIndex((i) => i.kind === "unread-divider"),
+    [items]
+  );
 
   // Virtualizer
   const virtualizer = useVirtualizer({
@@ -93,6 +156,7 @@ export function MessageList() {
     estimateSize: (index) => {
       const item = items[index];
       if (item.kind === "date") return 40;
+      if (item.kind === "unread-divider") return 36;
       // Estimate message height based on content
       const msg = item.message;
       if (msg.media?.type === "photo" || msg.media?.type === "video") return 280;
@@ -105,18 +169,61 @@ export function MessageList() {
     measureElement: (el) => el.getBoundingClientRect().height,
   });
 
-  // Auto-scroll to bottom on initial load or new message
+  // Auto-scroll on initial load or new message
   useEffect(() => {
-    if (items.length === 0) return;
+    if (items.length === 0) {
+      // When messages are cleared (e.g. before "around" API call),
+      // reset so the NEXT data arrival triggers initial scroll positioning.
+      prevCountRef.current = 0;
+      return;
+    }
 
     if (prevCountRef.current === 0 && items.length > 0) {
-      // Initial load — jump to bottom
-      requestAnimationFrame(() => {
+      // Initial load — scroll to unread divider or bottom.
+      // Multiple attempts needed because virtualizer uses estimated sizes
+      // initially; real measurements arrive asynchronously after render.
+      // Suppress scroll-triggered pagination until initial positioning is done
+      initialScrollDoneRef.current = false;
+
+      if (unreadDividerIndex >= 0) {
+        // Use virtualizer.scrollToIndex first to get roughly close,
+        // then fall back to DOM scrollIntoView for pixel-perfect positioning
+        // (virtualizer estimates can be inaccurate for media-heavy chats).
+        virtualizer.scrollToIndex(unreadDividerIndex, { align: "start" });
+        const scrollViaDom = () => {
+          const el = parentRef.current?.querySelector(
+            `[data-index="${unreadDividerIndex}"]`
+          );
+          if (el) {
+            el.scrollIntoView({ block: "start" });
+            // Add small offset so divider isn't hidden behind pinned banner
+            if (parentRef.current) parentRef.current.scrollTop -= 8;
+          }
+        };
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            scrollViaDom();
+            setTimeout(scrollViaDom, 150);
+            setTimeout(() => {
+              scrollViaDom();
+              initialScrollDoneRef.current = true;
+            }, 400);
+          });
+        });
+      } else {
+        // No unread — scroll to bottom
         virtualizer.scrollToIndex(items.length - 1, { align: "end" });
-      });
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            virtualizer.scrollToIndex(items.length - 1, { align: "end" });
+            initialScrollDoneRef.current = true;
+          });
+        });
+      }
     } else if (
       items.length > prevCountRef.current &&
-      !isLoadingMoreRef.current
+      !isLoadingMoreRef.current &&
+      !isLoadingNewerRef.current
     ) {
       // New message at bottom — auto-scroll if near bottom
       const el = parentRef.current;
@@ -133,36 +240,114 @@ export function MessageList() {
     if (isLoadingMoreRef.current && items.length > prevCountRef.current) {
       isLoadingMoreRef.current = false;
     }
+    if (isLoadingNewerRef.current && items.length > prevCountRef.current) {
+      isLoadingNewerRef.current = false;
+    }
 
     prevCountRef.current = items.length;
-  }, [items.length, virtualizer]);
+  }, [items.length, virtualizer, unreadDividerIndex]);
+
+  // Failsafe: reset loading refs when isLoading goes false.
+  // Prevents refs from getting stuck if loadMore/loadNewer returns 0 results.
+  useEffect(() => {
+    if (!isLoading) {
+      const timer = setTimeout(() => {
+        isLoadingMoreRef.current = false;
+        isLoadingNewerRef.current = false;
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading]);
 
   // Reset on chat switch
   useEffect(() => {
     prevCountRef.current = 0;
     isLoadingMoreRef.current = false;
+    isLoadingNewerRef.current = false;
+    initialScrollDoneRef.current = false;
+    markedUpToRef.current = 0;
     setShowScrollBtn(false);
+    if (markAsReadTimerRef.current) {
+      clearTimeout(markAsReadTimerRef.current);
+      markAsReadTimerRef.current = null;
+    }
   }, [selectedChatId]);
 
-  // Handle scroll: load more when near top, show/hide scroll button
+  // Handle scroll: load more/newer, show/hide scroll button, mark as read
   const handleScroll = useCallback(() => {
     const el = parentRef.current;
     if (!el) return;
 
-    if (el.scrollTop < 150 && hasMore && !isLoading && !isLoadingMoreRef.current) {
+    // Load older messages when near top (skip during initial scroll-to-divider)
+    if (initialScrollDoneRef.current && el.scrollTop < 150 && hasMore && !isLoading && !isLoadingMoreRef.current) {
       isLoadingMoreRef.current = true;
       loadMore();
     }
 
+    // Load newer messages when near bottom (when in middle of history)
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (initialScrollDoneRef.current && distFromBottom < 150 && hasNewer && !isLoading && !isLoadingNewerRef.current) {
+      isLoadingNewerRef.current = true;
+      loadNewer();
+    }
+
     setShowScrollBtn(distFromBottom > 300);
-  }, [hasMore, isLoading, loadMore]);
+
+    // Progressive mark-as-read: determine the highest visible unread message
+    // and mark everything up to it as read (with debounce to avoid API spam).
+    if (initialScrollDoneRef.current && unreadCount > 0 && readInboxMaxId) {
+      // At the very bottom with no newer → mark ALL as read
+      if (distFromBottom < 50 && !hasNewer) {
+        if (markAsReadTimerRef.current) clearTimeout(markAsReadTimerRef.current);
+        markedUpToRef.current = Infinity;
+        markAsReadTimerRef.current = setTimeout(() => {
+          markChatAsRead();
+        }, 300);
+      } else {
+        // Find the highest ACTUALLY visible unread message ID.
+        // getVirtualItems() includes overscan — filter to viewport only.
+        const scrollTop = el.scrollTop;
+        const viewportBottom = scrollTop + el.clientHeight;
+        let maxVisibleUnreadId = 0;
+        for (const vItem of virtualizer.getVirtualItems()) {
+          // Skip items outside the actual viewport (overscan)
+          if (vItem.end < scrollTop || vItem.start > viewportBottom) continue;
+          const item = items[vItem.index];
+          if (
+            item.kind === "message" &&
+            !item.message.isOutgoing &&
+            item.message.id > readInboxMaxId
+          ) {
+            maxVisibleUnreadId = Math.max(maxVisibleUnreadId, item.message.id);
+          }
+        }
+        // Only send markAsRead if we've scrolled past new unread messages
+        if (maxVisibleUnreadId > 0 && maxVisibleUnreadId > markedUpToRef.current) {
+          const targetId = maxVisibleUnreadId;
+          markedUpToRef.current = targetId;
+          if (markAsReadTimerRef.current) clearTimeout(markAsReadTimerRef.current);
+          markAsReadTimerRef.current = setTimeout(() => {
+            // Guard: skip if a newer mark already happened (e.g. from rapid scrolling)
+            if (markedUpToRef.current > targetId) return;
+            markChatAsRead(targetId);
+          }, 500);
+        }
+      }
+    }
+  }, [hasMore, hasNewer, isLoading, loadMore, loadNewer, unreadCount, readInboxMaxId, markChatAsRead, virtualizer, items]);
 
   const scrollToBottom = useCallback(() => {
-    if (items.length > 0) {
+    if (hasNewer) {
+      // If we're in the middle of history, reload from bottom
+      loadMessages("bottom");
+    } else if (items.length > 0) {
       virtualizer.scrollToIndex(items.length - 1, { align: "end", behavior: "smooth" });
     }
-  }, [items.length, virtualizer]);
+    // Mark all as read when explicitly jumping to bottom
+    if (unreadCount > 0) {
+      markChatAsRead();
+    }
+  }, [items.length, virtualizer, hasNewer, loadMessages, unreadCount, markChatAsRead]);
 
   if (!selectedChatId) {
     return (
@@ -228,6 +413,14 @@ export function MessageList() {
                       {formatDateSeparator(item.date)}
                     </span>
                   </div>
+                ) : item.kind === "unread-divider" ? (
+                  <div className="flex items-center gap-3 my-2 px-2">
+                    <div className="flex-1 h-px bg-blue-500/50" />
+                    <span className="text-xs font-medium text-blue-500 whitespace-nowrap">
+                      Непрочитанные сообщения
+                    </span>
+                    <div className="flex-1 h-px bg-blue-500/50" />
+                  </div>
                 ) : (
                   <MessageItem
                     message={item.message}
@@ -238,6 +431,13 @@ export function MessageList() {
               </div>
             );
           })}
+
+          {/* Loading spinner at bottom during newer messages load */}
+          {hasNewer && isLoading && (
+            <div className="flex justify-center py-2 sticky bottom-0 z-10">
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            </div>
+          )}
         </div>
       </div>
 

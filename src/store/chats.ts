@@ -45,6 +45,12 @@ interface ChatsStore {
     lastMessage: TelegramDialog["lastMessage"],
     incrementUnread: boolean
   ) => void;
+  /**
+   * Update read state after markAsRead API call.
+   * maxId=0 means all read, otherwise partial read up to maxId.
+   * remainingUnread is the count of messages still unread after this mark.
+   */
+  updateReadState: (chatId: string, maxId: number, remainingUnread?: number) => void;
   setLoading: (loading: boolean) => void;
   setLoadingMore: (loading: boolean) => void;
   setHasMore: (hasMore: boolean) => void;
@@ -113,19 +119,34 @@ export const useChatsStore = create<ChatsStore>()(
             // If incoming has newer data, use it (update lastMessage, unreadCount, etc.)
             if (incTime > exTime) {
               changed = true;
+              // If our local readInboxMaxId is ahead (we've locally marked messages
+              // as read but the server sync hasn't caught up yet), keep our local
+              // unread count to avoid the counter jumping back up temporarily.
+              const localReadAhead = (existing.readInboxMaxId ?? 0) > (inc.readInboxMaxId ?? 0);
               return {
                 ...existing,
                 lastMessage: inc.lastMessage,
-                unreadCount: inc.unreadCount,
+                unreadCount: localReadAhead ? Math.min(existing.unreadCount, inc.unreadCount) : inc.unreadCount,
+                readInboxMaxId: localReadAhead ? existing.readInboxMaxId : inc.readInboxMaxId,
                 isPinned: inc.isPinned,
                 isMuted: inc.isMuted,
               };
             }
 
             // If unreadCount changed (e.g., marked as read on another device)
-            if (inc.unreadCount !== existing.unreadCount) {
+            if (inc.unreadCount !== existing.unreadCount || inc.readInboxMaxId !== existing.readInboxMaxId) {
+              // If our local readInboxMaxId is ahead, keep our local read state
+              const localReadAhead = (existing.readInboxMaxId ?? 0) > (inc.readInboxMaxId ?? 0);
+              if (localReadAhead) {
+                // Only update if server has a lower unread count (read on another device)
+                if (inc.unreadCount < existing.unreadCount) {
+                  changed = true;
+                  return { ...existing, unreadCount: inc.unreadCount };
+                }
+                return existing;
+              }
               changed = true;
-              return { ...existing, unreadCount: inc.unreadCount };
+              return { ...existing, unreadCount: inc.unreadCount, readInboxMaxId: inc.readInboxMaxId };
             }
 
             return existing;
@@ -195,6 +216,23 @@ export const useChatsStore = create<ChatsStore>()(
 
           return { dialogs: result };
         }),
+
+      updateReadState: (chatId, maxId, remainingUnread) =>
+        set((state) => ({
+          dialogs: state.dialogs.map((d) => {
+            if (d.id !== chatId) return d;
+            if (maxId === 0) {
+              // Mark all as read
+              return { ...d, unreadCount: 0, readInboxMaxId: undefined };
+            }
+            // Partial read — update readInboxMaxId and unread count
+            return {
+              ...d,
+              readInboxMaxId: Math.max(maxId, d.readInboxMaxId ?? 0),
+              unreadCount: remainingUnread ?? 0,
+            };
+          }),
+        })),
 
       setLoading: (loading) => set({ isLoading: loading }),
       setLoadingMore: (loading) => set({ isLoadingMore: loading }),

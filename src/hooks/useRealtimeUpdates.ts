@@ -87,6 +87,32 @@ export function useRealtimeUpdates() {
         return;
       }
 
+      // Capture client for use in async callbacks
+      const capturedClient = client;
+
+      // Throttled markAsRead for incoming messages while viewing chat
+      let markAsReadTimer: ReturnType<typeof setTimeout> | null = null;
+      let pendingMarkReadChatId: string | null = null;
+      let pendingMarkReadMaxId = 0;
+
+      const flushMarkAsRead = async () => {
+        if (cancelled) return;
+        if (!pendingMarkReadChatId || pendingMarkReadMaxId <= 0) return;
+        const chatIdToMark = pendingMarkReadChatId;
+        const maxIdToMark = pendingMarkReadMaxId;
+        pendingMarkReadChatId = null;
+        pendingMarkReadMaxId = 0;
+        try {
+          const { markAsRead } = await import("@/lib/telegram/dialogs");
+          await markAsRead(capturedClient, chatIdToMark, maxIdToMark);
+          if (!cancelled) {
+            useChatsStore.getState().updateReadState(chatIdToMark, maxIdToMark);
+          }
+        } catch {
+          // Non-critical: next scroll or periodic sync will catch up
+        }
+      };
+
       // New messages — update both messages store and dialogs store
       unsubscribersRef.current.push(
         subscribeToNewMessages(client, (msg) => {
@@ -115,8 +141,24 @@ export function useRealtimeUpdates() {
             // Increment unread only for incoming messages when NOT viewing that chat
             !msg.isOutgoing && !isViewingChat
           );
+
+          // Auto-mark as read when viewing the chat (throttled)
+          if (isViewingChat && !msg.isOutgoing) {
+            pendingMarkReadChatId = msg.chatId;
+            pendingMarkReadMaxId = Math.max(pendingMarkReadMaxId, msg.id);
+            if (markAsReadTimer) clearTimeout(markAsReadTimer);
+            markAsReadTimer = setTimeout(flushMarkAsRead, 500);
+          }
         })
       );
+
+      // Cleanup markAsRead timer on unsubscribe
+      unsubscribersRef.current.push(() => {
+        if (markAsReadTimer) {
+          clearTimeout(markAsReadTimer);
+          markAsReadTimer = null;
+        }
+      });
 
       // Edited messages
       unsubscribersRef.current.push(
@@ -143,7 +185,6 @@ export function useRealtimeUpdates() {
       // This timer fetches top dialogs every 60s and smart-merges them,
       // ensuring the chat list stays reasonably up to date even when
       // real-time events are lost.
-      const capturedClient = client;
       const runPeriodicSync = async () => {
         try {
           const { getDialogs } = await import("@/lib/telegram/dialogs");

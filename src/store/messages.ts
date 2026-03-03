@@ -24,10 +24,14 @@ interface MessagesStore {
   messagesByChat: Record<string, TelegramMessage[]>;
   isLoading: boolean;
   hasMore: Record<string, boolean>;
+  /** Whether there are newer messages to load (when loaded around a target) */
+  hasNewer: Record<string, boolean>;
 
   setMessages: (chatId: string, messages: TelegramMessage[]) => void;
   addMessage: (chatId: string, message: TelegramMessage) => void;
   prependMessages: (chatId: string, messages: TelegramMessage[]) => void;
+  /** Append newer messages to the end with deduplication */
+  appendMessages: (chatId: string, messages: TelegramMessage[]) => void;
   updateMessage: (
     chatId: string,
     messageId: number,
@@ -36,6 +40,7 @@ interface MessagesStore {
   deleteMessages: (chatId: string, messageIds: number[]) => void;
   setLoading: (loading: boolean) => void;
   setHasMore: (chatId: string, hasMore: boolean) => void;
+  setHasNewer: (chatId: string, hasNewer: boolean) => void;
   clearChat: (chatId: string) => void;
   reset: () => void;
 }
@@ -46,6 +51,7 @@ export const useMessagesStore = create<MessagesStore>()(
       messagesByChat: {},
       isLoading: false,
       hasMore: {},
+      hasNewer: {},
 
       setMessages: (chatId, messages) =>
         set((state) => ({
@@ -77,6 +83,20 @@ export const useMessagesStore = create<MessagesStore>()(
             messagesByChat: {
               ...state.messagesByChat,
               [chatId]: [...newMessages, ...existing],
+            },
+          };
+        }),
+
+      appendMessages: (chatId, messages) =>
+        set((state) => {
+          const existing = state.messagesByChat[chatId] || [];
+          const existingIds = new Set(existing.map((m) => m.id));
+          const newMessages = messages.filter((m) => !existingIds.has(m.id));
+          if (newMessages.length === 0) return state;
+          return {
+            messagesByChat: {
+              ...state.messagesByChat,
+              [chatId]: [...existing, ...newMessages],
             },
           };
         }),
@@ -123,13 +143,19 @@ export const useMessagesStore = create<MessagesStore>()(
           hasMore: { ...state.hasMore, [chatId]: hasMore },
         })),
 
+      setHasNewer: (chatId, hasNewer) =>
+        set((state) => ({
+          hasNewer: { ...state.hasNewer, [chatId]: hasNewer },
+        })),
+
       clearChat: (chatId) =>
         set((state) => {
           const { [chatId]: _, ...rest } = state.messagesByChat;
-          return { messagesByChat: rest };
+          const { [chatId]: __, ...restHasNewer } = state.hasNewer;
+          return { messagesByChat: rest, hasNewer: restHasNewer };
         }),
 
-      reset: () => set({ messagesByChat: {}, isLoading: false, hasMore: {} }),
+      reset: () => set({ messagesByChat: {}, isLoading: false, hasMore: {}, hasNewer: {} }),
     }),
     {
       name: "tg-messages",

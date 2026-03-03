@@ -46,6 +46,8 @@ export interface TelegramDialog {
   };
   unreadCount: number;
   unreadMentionsCount: number;
+  /** ID of last read incoming message (for unread divider positioning) */
+  readInboxMaxId?: number;
   isPinned: boolean;
   isOnline?: boolean;
   isVerified?: boolean;

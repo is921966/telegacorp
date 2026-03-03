@@ -171,34 +171,15 @@ function extractSenderName(message: Api.Message): string | undefined {
   return undefined;
 }
 
-export async function getMessages(
-  client: TelegramClient,
-  chatId: string,
-  limit = 50,
-  offsetId?: number
-): Promise<TelegramMessage[]> {
-  // Per-chat rate limiting so switching chats isn't blocked
-  await rateLimiter.throttle(`getMessages:${chatId}`, 300);
-
-  // Resolve entity from GramJS cache. After session restore the cache is
-  // empty until dialogs are loaded; in that case we throw so the caller
-  // (useMessages) can retry once the entity cache has been populated.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let entity: any;
+/** Resolve entity from GramJS cache with fallback probe */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function resolveEntity(client: TelegramClient, chatId: string): Promise<any> {
   try {
-    entity = await client.getInputEntity(chatId);
+    return await client.getInputEntity(chatId);
   } catch {
-    // Not in cache — try the raw chatId as a last resort.
-    // GramJS may still resolve it internally for some entity types.
     try {
-      // Quick probe: attempt getMessages with raw chatId.
-      // If GramJS can resolve it, great; if not, the throw below
-      // will let useMessages retry after dialogs load.
       const probe = await client.getMessages(chatId, { limit: 1 });
-      if (probe && probe.length >= 0) {
-        // GramJS resolved it — use chatId directly
-        entity = chatId;
-      }
+      if (probe && probe.length >= 0) return chatId;
     } catch {
       throw new Error(
         `Entity not found for chat ${chatId}. ` +
@@ -206,63 +187,124 @@ export async function getMessages(
       );
     }
   }
+}
+
+/** Map a single GramJS Api.Message to our TelegramMessage type */
+function mapApiMessage(
+  msg: Api.Message,
+  chatId: string,
+  allMessages: Api.Message[]
+): TelegramMessage {
+  let replyToText: string | undefined;
+  let replyToSenderName: string | undefined;
+  if (msg.replyTo?.replyToMsgId) {
+    const replyMsg = allMessages.find((m) => m.id === msg.replyTo?.replyToMsgId);
+    if (replyMsg) {
+      replyToText = replyMsg.message || "";
+      replyToSenderName = extractSenderName(replyMsg);
+    }
+  }
+
+  let commentsCount: number | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const replies = (msg as any).replies;
+  if (replies && replies.comments) {
+    commentsCount = replies.replies || 0;
+  }
+
+  return {
+    id: msg.id,
+    chatId,
+    senderId: msg.fromId
+      ? (msg.fromId as Api.PeerUser).userId?.toString()
+      : undefined,
+    senderName: extractSenderName(msg),
+    text: msg.message || "",
+    date: new Date((msg.date || 0) * 1000),
+    isOutgoing: msg.out || false,
+    replyToId: msg.replyTo?.replyToMsgId,
+    replyToText,
+    replyToSenderName,
+    media: extractMedia(msg),
+    isEdited: !!msg.editDate,
+    isPinned: msg.pinned || false,
+    reactions: extractReactions(msg),
+    commentsCount,
+    views: msg.views,
+    groupedId: msg.groupedId?.toString(),
+    entities: extractEntities(msg),
+    forwardFrom: extractForwardInfo(msg),
+    webPage: extractWebPage(msg),
+  };
+}
+
+/** Convert raw GramJS messages to TelegramMessage[] */
+function mapMessages(
+  rawMessages: Api.TypeMessage[],
+  chatId: string
+): TelegramMessage[] {
+  const apiMessages = rawMessages.filter(
+    (msg): msg is Api.Message => msg instanceof Api.Message
+  );
+  return apiMessages.map((msg) => mapApiMessage(msg, chatId, apiMessages));
+}
+
+export async function getMessages(
+  client: TelegramClient,
+  chatId: string,
+  limit = 50,
+  offsetId?: number
+): Promise<TelegramMessage[]> {
+  await rateLimiter.throttle(`getMessages:${chatId}`, 300);
+  const entity = await resolveEntity(client, chatId);
+
+  const messages = await callWithFloodWait(() =>
+    client.getMessages(entity, { limit, offsetId })
+  );
+
+  return mapMessages(messages, chatId);
+}
+
+/** Load messages around a target message ID (for jumping to unread) */
+export async function getMessagesAround(
+  client: TelegramClient,
+  chatId: string,
+  targetId: number,
+  limit = 50
+): Promise<TelegramMessage[]> {
+  await rateLimiter.throttle(`getMessages:${chatId}`, 300);
+  const entity = await resolveEntity(client, chatId);
 
   const messages = await callWithFloodWait(() =>
     client.getMessages(entity, {
       limit,
-      offsetId,
+      offsetId: targetId,
+      addOffset: -Math.floor(limit / 2),
     })
   );
 
-  return messages
-    .filter((msg): msg is Api.Message => msg instanceof Api.Message)
-    .map((msg) => {
-      // Extract reply-to preview
-      let replyToText: string | undefined;
-      let replyToSenderName: string | undefined;
-      if (msg.replyTo?.replyToMsgId) {
-        const replyMsg = messages.find(
-          (m) => m instanceof Api.Message && m.id === msg.replyTo?.replyToMsgId
-        );
-        if (replyMsg && replyMsg instanceof Api.Message) {
-          replyToText = replyMsg.message || "";
-          replyToSenderName = extractSenderName(replyMsg);
-        }
-      }
+  return mapMessages(messages, chatId);
+}
 
-      // Extract comments count for channel posts
-      let commentsCount: number | undefined;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const replies = (msg as any).replies;
-      if (replies && replies.comments) {
-        commentsCount = replies.replies || 0;
-      }
+/** Load messages newer than afterId (for downward pagination) */
+export async function getNewerMessages(
+  client: TelegramClient,
+  chatId: string,
+  afterId: number,
+  limit = 50
+): Promise<TelegramMessage[]> {
+  await rateLimiter.throttle(`getMessages:${chatId}`, 300);
+  const entity = await resolveEntity(client, chatId);
 
-      return {
-        id: msg.id,
-        chatId,
-        senderId: msg.fromId
-          ? (msg.fromId as Api.PeerUser).userId?.toString()
-          : undefined,
-        senderName: extractSenderName(msg),
-        text: msg.message || "",
-        date: new Date((msg.date || 0) * 1000),
-        isOutgoing: msg.out || false,
-        replyToId: msg.replyTo?.replyToMsgId,
-        replyToText,
-        replyToSenderName,
-        media: extractMedia(msg),
-        isEdited: !!msg.editDate,
-        isPinned: msg.pinned || false,
-        reactions: extractReactions(msg),
-        commentsCount,
-        views: msg.views,
-        groupedId: msg.groupedId?.toString(),
-        entities: extractEntities(msg),
-        forwardFrom: extractForwardInfo(msg),
-        webPage: extractWebPage(msg),
-      };
-    });
+  const messages = await callWithFloodWait(() =>
+    client.getMessages(entity, {
+      limit,
+      minId: afterId,
+    })
+  );
+
+  // GramJS returns newest-first; reverse to get chronological order
+  return mapMessages(messages, chatId).reverse();
 }
 
 export async function sendMessage(

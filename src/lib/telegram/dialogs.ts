@@ -296,10 +296,12 @@ export async function getDialogs(
       }
     }
 
-    // Extract unread mentions count
+    // Extract unread mentions count and readInboxMaxId
     let unreadMentionsCount = 0;
+    let readInboxMaxId: number | undefined;
     if (rawDialog instanceof Api.Dialog) {
       unreadMentionsCount = rawDialog.unreadMentionsCount || 0;
+      readInboxMaxId = rawDialog.readInboxMaxId || undefined;
     }
 
     // Online status for users
@@ -341,6 +343,7 @@ export async function getDialogs(
       title: dialog.title || "Unknown",
       unreadCount: dialog.unreadCount,
       unreadMentionsCount,
+      readInboxMaxId,
       isPinned: dialog.pinned || false,
       isVerified,
       isMuted,
@@ -363,10 +366,12 @@ export async function getDialogs(
 
 export async function markAsRead(
   client: TelegramClient,
-  chatId: string
+  chatId: string,
+  maxId?: number
 ): Promise<void> {
   await rateLimiter.throttle("markAsRead", 500);
   const peer = await client.getInputEntity(chatId);
+  const resolvedMaxId = maxId ?? 0; // 0 = mark all as read
 
   // Channels/supergroups use channels.ReadHistory, others use messages.ReadHistory
   if (peer instanceof Api.InputPeerChannel) {
@@ -376,14 +381,14 @@ export async function markAsRead(
           channelId: peer.channelId,
           accessHash: peer.accessHash,
         }),
-        maxId: 0,
+        maxId: resolvedMaxId,
       })
     );
   } else {
     await client.invoke(
       new Api.messages.ReadHistory({
         peer,
-        maxId: 0,
+        maxId: resolvedMaxId,
       })
     );
   }
