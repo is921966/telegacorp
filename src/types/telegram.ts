@@ -42,6 +42,7 @@ export interface TelegramDialog {
     isOutgoing: boolean;
     isRead: boolean;
     mediaType?: "photo" | "video" | "document" | "voice" | "sticker" | "gif" | "audio" | "contact" | "location" | "poll";
+    mediaFileName?: string;
   };
   unreadCount: number;
   unreadMentionsCount: number;

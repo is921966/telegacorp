@@ -110,6 +110,7 @@ export function useRealtimeUpdates() {
               isOutgoing: msg.isOutgoing || false,
               isRead: msg.isOutgoing || isViewingChat,
               mediaType,
+              mediaFileName: msg.media?.fileName,
             },
             // Increment unread only for incoming messages when NOT viewing that chat
             !msg.isOutgoing && !isViewingChat

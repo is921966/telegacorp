@@ -147,11 +147,18 @@ export function ChatListItem({
         {lastMsg.isOutgoing && dialog.type === "user" && (
           <span className="text-foreground font-medium">Вы: </span>
         )}
-        {/* Media type indicator */}
+        {/* Media type indicator — Telegram style:
+            - with caption: icon only + caption text
+            - document without caption: icon + filename
+            - other media without caption: icon + label ("Фото", "Видео"…) */}
         {mediaLabel && (
           <span className="inline-flex items-center gap-0.5 text-blue-400">
             {mediaLabel.icon}
-            {mediaLabel.label}
+            {lastMsg.text
+              ? ""
+              : lastMsg.mediaFileName
+                ? lastMsg.mediaFileName
+                : mediaLabel.label}
             {lastMsg.text ? " " : ""}
           </span>
         )}

@@ -34,6 +34,21 @@ function getMediaType(
   return undefined;
 }
 
+/** Extract filename from a document message */
+function getMediaFileName(message: Api.Message): string | undefined {
+  const media = message.media;
+  if (!(media instanceof Api.MessageMediaDocument)) return undefined;
+  const doc = media.document;
+  if (!(doc instanceof Api.Document)) return undefined;
+  const attrs = doc.attributes || [];
+  for (const attr of attrs) {
+    if (attr instanceof Api.DocumentAttributeFilename) {
+      return attr.fileName;
+    }
+  }
+  return undefined;
+}
+
 /** Get sender display name from a message, resolving against dialog entities */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getSenderName(message: Api.Message, dialog: { entity?: any }): string | undefined {
@@ -316,6 +331,7 @@ export async function getDialogs(
         isOutgoing,
         isRead,
         mediaType: getMediaType(msg),
+        mediaFileName: getMediaFileName(msg),
       };
     }
 

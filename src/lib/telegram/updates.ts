@@ -80,8 +80,16 @@ function dispatchMessage(msg: Api.Message, handler: MessageHandler): void {
     }
   }
 
-  // Extract media type for dialog preview
+  // Extract media type and filename for dialog preview
   const mediaType = extractMediaType(msg);
+  let mediaFileName: string | undefined;
+  if (mediaType === "document" && msg.media instanceof Api.MessageMediaDocument) {
+    const doc = (msg.media as Api.MessageMediaDocument).document;
+    if (doc instanceof Api.Document) {
+      const fnAttr = doc.attributes?.find((a) => a instanceof Api.DocumentAttributeFilename);
+      if (fnAttr) mediaFileName = (fnAttr as Api.DocumentAttributeFilename).fileName;
+    }
+  }
 
   handler({
     id: msg.id,
@@ -93,7 +101,7 @@ function dispatchMessage(msg: Api.Message, handler: MessageHandler): void {
     isOutgoing: msg.out || false,
     replyToId: msg.replyTo?.replyToMsgId,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    media: mediaType ? ({ type: mediaType } as any) : undefined,
+    media: mediaType ? ({ type: mediaType, fileName: mediaFileName } as any) : undefined,
   });
 }
 
