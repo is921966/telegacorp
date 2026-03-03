@@ -9,8 +9,8 @@ const DB_NAME = "tg-media-cache";
 const DB_VERSION = 2;
 const STORE_NAME = "media";
 const VIDEO_STORE_NAME = "video-blobs";
-const MAX_ENTRIES = 2000;
-const MAX_VIDEO_ENTRIES = 50;
+const MAX_ENTRIES = 20000;
+const MAX_VIDEO_ENTRIES = 500;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 

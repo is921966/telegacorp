@@ -21,6 +21,19 @@ const memoryCache = new Map<string, string>();
 /** Separate cache for low-quality thumbnails (not persisted to IDB) */
 const thumbCache = new Map<string, string>();
 
+/** Cap thumbCache to prevent unbounded memory growth */
+const MAX_THUMB_CACHE = 5000;
+function capThumbCache() {
+  if (thumbCache.size <= MAX_THUMB_CACHE) return;
+  // Delete oldest 1000 entries (Map iterates in insertion order)
+  const iter = thumbCache.keys();
+  for (let i = 0; i < 1000; i++) {
+    const next = iter.next();
+    if (next.done) break;
+    thumbCache.delete(next.value);
+  }
+}
+
 /** In-memory cache for video blob URLs (session-only, max 10 for memory) */
 const videoBlobUrlCache = new Map<string, { url: string; fileName: string; mimeType: string }>();
 const MAX_VIDEO_MEMORY_ENTRIES = 10;
@@ -107,6 +120,14 @@ export async function downloadThumb(
   // If full quality already cached, skip thumb
   if (memoryCache.has(key)) return memoryCache.get(key) || null;
 
+  // Tier 2: IDB persistent cache (survives page reload)
+  const idbCached = await getMediaFromIDB(key);
+  if (idbCached) {
+    thumbCache.set(key, idbCached);
+    capThumbCache();
+    return idbCached;
+  }
+
   try {
     const msgs = await client.getMessages(chatId, { ids: [messageId] });
     const msg = msgs[0];
@@ -126,6 +147,8 @@ export async function downloadThumb(
           // GramJS provides them as raw bytes we can wrap as JPEG
           const thumbUrl = bufferToDataUrl(stripped.bytes as Buffer, "image/jpeg");
           thumbCache.set(key, thumbUrl);
+          capThumbCache();
+          putMediaToIDB(key, thumbUrl).catch(() => {});
           return thumbUrl;
         }
 
@@ -136,21 +159,37 @@ export async function downloadThumb(
         if (buffer && (typeof buffer === "string" || (buffer as Uint8Array).length > 0)) {
           const thumbUrl = bufferToDataUrl(buffer as Buffer, "image/jpeg");
           thumbCache.set(key, thumbUrl);
+          capThumbCache();
+          putMediaToIDB(key, thumbUrl).catch(() => {});
           return thumbUrl;
         }
       }
     }
 
-    // For videos — download thumb (already fast, reuse existing logic)
+    // For videos — download the highest-quality non-stripped thumbnail
+    // so the preview appears sharp (not blurred) immediately.
+    // IMPORTANT: pass the actual PhotoSize object to GramJS, not just an index —
+    // passing an index can result in downloading the wrong (tiny) thumbnail.
     if (msg.media instanceof Api.MessageMediaDocument) {
       const doc = (msg.media as Api.MessageMediaDocument).document;
       if (doc instanceof Api.Document && doc.mimeType?.startsWith("video/")) {
+        let bestThumb: (typeof doc.thumbs extends (infer T)[] | undefined ? T : never) | undefined;
+        if (doc.thumbs && doc.thumbs.length > 0) {
+          for (let i = doc.thumbs.length - 1; i >= 0; i--) {
+            if (!(doc.thumbs[i] instanceof Api.PhotoStrippedSize)) {
+              bestThumb = doc.thumbs[i];
+              break;
+            }
+          }
+        }
         const buffer = await client.downloadMedia(msg.media, {
-          thumb: 0,
+          thumb: bestThumb || 0,
         }) as Buffer | Uint8Array | string | undefined;
         if (buffer && (typeof buffer === "string" || (buffer as Uint8Array).length > 0)) {
           const thumbUrl = bufferToDataUrl(buffer as Buffer, "image/jpeg");
           thumbCache.set(key, thumbUrl);
+          capThumbCache();
+          putMediaToIDB(key, thumbUrl).catch(() => {});
           return thumbUrl;
         }
       }
@@ -227,8 +266,19 @@ export async function downloadMessageMedia(
           const isVideo = doc.mimeType?.startsWith("video/");
 
           if (isVideo) {
+            // Pick the largest non-stripped thumbnail for clear preview.
+            // Pass the actual PhotoSize object to GramJS (not index).
+            let vidBestThumb: (typeof doc.thumbs extends (infer T)[] | undefined ? T : never) | undefined;
+            if (doc.thumbs && doc.thumbs.length > 0) {
+              for (let i = doc.thumbs.length - 1; i >= 0; i--) {
+                if (!(doc.thumbs[i] instanceof Api.PhotoStrippedSize)) {
+                  vidBestThumb = doc.thumbs[i];
+                  break;
+                }
+              }
+            }
             buffer = await client.downloadMedia(msg.media, {
-              thumb: 0,
+              thumb: vidBestThumb || 0,
             }) as Buffer | Uint8Array | string | undefined;
             mime = "image/jpeg";
           } else if (isSticker) {
@@ -413,65 +463,111 @@ const preloadingSet = new Set<string>();
 
 /**
  * Preload a video when its thumbnail becomes visible.
- * - Skips on slow connections
- * - Downloads up to 2MB; if video fits, caches it entirely
- * - For larger videos, warms up the MTProto connection
+ * Downloads full video in chunks, caches in IDB for instant future access.
+ * Returns blob URL for auto-play.
+ *
+ * Note: MediaSource progressive streaming is not feasible for Telegram videos
+ * because most have the moov atom at end-of-file (no faststart), which means
+ * codec info is unavailable until the entire file is downloaded.
  */
 export async function preloadVideoStart(
   client: TelegramClient,
   chatId: string,
   messageId: number
-): Promise<void> {
-  if (isSlowConnection()) return;
+): Promise<string | null> {
+  if (isSlowConnection()) return null;
 
   const key = `${chatId}:${messageId}`;
-  if (videoBlobUrlCache.has(key)) return;
-  if (preloadingSet.has(key)) return;
+  const existing = videoBlobUrlCache.get(key);
+  if (existing) return existing.url;
+  if (preloadingSet.has(key)) return null;
 
   const idbCached = await getVideoFromIDB(key);
-  if (idbCached) return;
+  if (idbCached) {
+    const url = URL.createObjectURL(idbCached.blob);
+    videoBlobUrlCache.set(key, {
+      url,
+      fileName: idbCached.fileName,
+      mimeType: idbCached.mimeType,
+    });
+    evictVideoMemoryCache();
+    return url;
+  }
 
   preloadingSet.add(key);
   try {
     const msgs = await client.getMessages(chatId, { ids: [messageId] });
     const msg = msgs[0];
-    if (!msg || !(msg instanceof Api.Message) || !msg.media) return;
-    if (!(msg.media instanceof Api.MessageMediaDocument)) return;
+    if (!msg || !(msg instanceof Api.Message) || !msg.media) return null;
+    if (!(msg.media instanceof Api.MessageMediaDocument)) return null;
 
     const doc = (msg.media as Api.MessageMediaDocument).document;
-    if (!(doc instanceof Api.Document)) return;
-    if (!doc.mimeType?.startsWith("video/")) return;
+    if (!(doc instanceof Api.Document)) return null;
+    if (!doc.mimeType?.startsWith("video/")) return null;
 
-    const PRELOAD_BUDGET = 2 * 1024 * 1024; // 2MB
+    const PRELOAD_BUDGET = 50 * 1024 * 1024;
     const totalSize = Number(doc.size ?? Infinity);
+    if (totalSize > PRELOAD_BUDGET) return null;
+
     const chunks: Uint8Array[] = [];
     let bytesReceived = 0;
-
     const iter = client.iterDownload({
       file: msg.media,
       requestSize: 512 * 1024,
     });
-
     for await (const chunk of iter) {
       chunks.push(new Uint8Array(chunk));
       bytesReceived += chunk.length;
       if (bytesReceived >= PRELOAD_BUDGET) break;
     }
-
-    // Only cache if we got the full file (video <= 2MB)
     if (bytesReceived >= totalSize) {
       const blob = new Blob(chunks as BlobPart[], { type: doc.mimeType });
-      const fileName = doc.attributes?.find(
-        (a) => a instanceof Api.DocumentAttributeFilename
-      ) as Api.DocumentAttributeFilename | undefined;
-      await putVideoToIDB(key, blob, fileName?.fileName || "video", doc.mimeType);
+      const fileName =
+        (
+          doc.attributes?.find(
+            (a) => a instanceof Api.DocumentAttributeFilename
+          ) as Api.DocumentAttributeFilename | undefined
+        )?.fileName || "video";
+      await putVideoToIDB(key, blob, fileName, doc.mimeType);
       const url = URL.createObjectURL(blob);
-      videoBlobUrlCache.set(key, { url, fileName: fileName?.fileName || "video", mimeType: doc.mimeType });
+      videoBlobUrlCache.set(key, { url, fileName, mimeType: doc.mimeType });
       evictVideoMemoryCache();
+      return url;
     }
-  } catch {
-    // Non-critical background task
+
+    return null;
+  } catch (err) {
+    console.error("[preloadVideo] error:", key, err);
+    return null;
   } finally {
     preloadingSet.delete(key);
   }
+}
+
+/**
+ * Get cached video blob URL (from memory or IDB).
+ * Returns URL immediately if cached, otherwise null.
+ * Used for auto-play: if preloadVideoStart has cached a small video,
+ * this returns its blob URL without triggering a new download.
+ */
+export async function getCachedVideoUrl(
+  chatId: string,
+  messageId: number
+): Promise<string | null> {
+  const key = `${chatId}:${messageId}`;
+
+  // Tier 1: in-memory
+  const mem = videoBlobUrlCache.get(key);
+  if (mem) return mem.url;
+
+  // Tier 2: IDB
+  const idb = await getVideoFromIDB(key);
+  if (idb) {
+    const url = URL.createObjectURL(idb.blob);
+    videoBlobUrlCache.set(key, { url, fileName: idb.fileName, mimeType: idb.mimeType });
+    evictVideoMemoryCache();
+    return url;
+  }
+
+  return null;
 }

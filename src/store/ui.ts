@@ -12,6 +12,8 @@ interface UIStore {
   isMediaViewerOpen: boolean;
   mediaViewerUrl: string | null;
   mediaViewerType: "image" | "video";
+  mediaViewerMessageId: number | null;
+  mediaViewerChatId: string | null;
   replyToMessageId: number | null;
   editingMessageId: number | null;
   theme: "light" | "dark";
@@ -23,7 +25,7 @@ interface UIStore {
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
   toggleGroupInfo: () => void;
-  openMediaViewer: (url: string, type?: "image" | "video") => void;
+  openMediaViewer: (url: string, type?: "image" | "video", messageId?: number, chatId?: string) => void;
   closeMediaViewer: () => void;
   setReplyTo: (messageId: number | null) => void;
   setEditing: (messageId: number | null) => void;
@@ -41,6 +43,8 @@ export const useUIStore = create<UIStore>((set) => ({
   isMediaViewerOpen: false,
   mediaViewerUrl: null,
   mediaViewerType: "image" as "image" | "video",
+  mediaViewerMessageId: null,
+  mediaViewerChatId: null,
   replyToMessageId: null,
   editingMessageId: null,
   theme: "dark",
@@ -55,13 +59,19 @@ export const useUIStore = create<UIStore>((set) => ({
       searchQuery: "",
     })),
 
-  selectChat: (chatId) =>
+  selectChat: (chatId) => {
+    if (chatId) {
+      import("@/lib/chat-priority-tracker").then(({ recordChatOpen }) => {
+        recordChatOpen(chatId);
+      });
+    }
     set({
       selectedChatId: chatId,
       currentView: "chats" as ViewType,
       isSidebarOpen: !chatId,
       isGroupInfoOpen: false,
-    }),
+    });
+  },
 
   toggleSearch: () =>
     set((state) => ({
@@ -79,11 +89,22 @@ export const useUIStore = create<UIStore>((set) => ({
   toggleGroupInfo: () =>
     set((state) => ({ isGroupInfoOpen: !state.isGroupInfoOpen })),
 
-  openMediaViewer: (url, type = "image") =>
-    set({ isMediaViewerOpen: true, mediaViewerUrl: url, mediaViewerType: type }),
+  openMediaViewer: (url, type = "image", messageId, chatId) =>
+    set({
+      isMediaViewerOpen: true,
+      mediaViewerUrl: url,
+      mediaViewerType: type,
+      mediaViewerMessageId: messageId ?? null,
+      mediaViewerChatId: chatId ?? null,
+    }),
 
   closeMediaViewer: () =>
-    set({ isMediaViewerOpen: false, mediaViewerUrl: null }),
+    set({
+      isMediaViewerOpen: false,
+      mediaViewerUrl: null,
+      mediaViewerMessageId: null,
+      mediaViewerChatId: null,
+    }),
 
   setReplyTo: (messageId) => set({ replyToMessageId: messageId }),
   setEditing: (messageId) => set({ editingMessageId: messageId }),
@@ -104,6 +125,8 @@ export const useUIStore = create<UIStore>((set) => ({
       isGroupInfoOpen: false,
       isMediaViewerOpen: false,
       mediaViewerUrl: null,
+      mediaViewerMessageId: null,
+      mediaViewerChatId: null,
       replyToMessageId: null,
       editingMessageId: null,
     }),

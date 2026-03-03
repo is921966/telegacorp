@@ -158,6 +158,11 @@ export function useRealtimeUpdates() {
       };
 
       syncIntervalRef.current = setInterval(runPeriodicSync, DIALOG_SYNC_INTERVAL_MS);
+
+      // Background media prefetch — start after subscriptions are ready
+      const { initPrefetchManager } = await import("@/lib/prefetch-manager");
+      const cleanupPrefetch = initPrefetchManager();
+      unsubscribersRef.current.push(cleanupPrefetch);
     };
 
     trySubscribe();

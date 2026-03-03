@@ -17,9 +17,11 @@ import {
   Pin,
   Trash2,
   Play,
+  Maximize2,
 } from "lucide-react";
 import { useUIStore } from "@/store/ui";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
+import { VideoPlayer } from "./VideoPlayer";
 
 const URL_REGEX = /(https?:\/\/[^\s<>"')\]]+)/g;
 
@@ -235,7 +237,7 @@ function InlinePhoto({ chatId, messageId, width, height }: {
       ref={containerRef}
       className="rounded-lg overflow-hidden mb-1 cursor-pointer"
       style={{ width: displayW, height: displayH }}
-      onClick={() => fullUrl && openMediaViewer(fullUrl)}
+      onClick={() => fullUrl && openMediaViewer(fullUrl, "image", messageId, chatId)}
     >
       {displayUrl ? (
         <img
@@ -253,7 +255,7 @@ function InlinePhoto({ chatId, messageId, width, height }: {
   );
 }
 
-/** Video thumbnail with play button — viewport-aware, downloads and plays on click */
+/** Video thumbnail with play button — viewport-aware, progressive loading, inline playback */
 function VideoThumbnail({ chatId, messageId, width, height, duration }: {
   chatId: string;
   messageId: number;
@@ -263,10 +265,13 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
 }) {
   const { client } = useTelegramClient();
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+  const [fullThumbUrl, setFullThumbUrl] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [playingInline, setPlayingInline] = useState(false);
+  const [autoStarted, setAutoStarted] = useState(false); // true when auto-played from preload
   const [isVisible, setIsVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { openMediaViewer } = useUIStore();
@@ -283,34 +288,90 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
     return () => observer.disconnect();
   }, []);
 
+  // Step 1: Load tiny thumbnail immediately (outside semaphore — fast)
   useEffect(() => {
     if (!client || !isVisible) return;
     let cancelled = false;
 
     (async () => {
       try {
-        const { downloadMessageMedia, getCachedMedia, preloadVideoStart } = await import("@/lib/telegram/media-cache");
-        const cached = getCachedMedia(chatId, messageId);
-        if (cached) {
-          setThumbUrl(cached);
+        const { getCachedMedia, getCachedThumb } = await import("@/lib/telegram/media-cache");
+
+        // Check if full-quality thumbnail is already cached
+        const cachedFull = getCachedMedia(chatId, messageId);
+        if (cachedFull) {
+          setFullThumbUrl(cachedFull);
           setLoading(false);
-          // Still preload the video in background
-          preloadVideoStart(client, chatId, messageId).catch(() => {});
           return;
         }
-        const result = await downloadMessageMedia(client, chatId, messageId);
-        if (!cancelled && result) setThumbUrl(result);
 
-        // Background preload: start downloading small videos ahead of click
-        preloadVideoStart(client, chatId, messageId).catch(() => {});
+        // Check if tiny thumb already cached
+        const cachedThumb = getCachedThumb(chatId, messageId);
+        if (cachedThumb) {
+          setThumbUrl(cachedThumb);
+          setLoading(false);
+        }
+
+        // Download tiny thumb (runs OUTSIDE semaphore, very fast ~1-3 KB)
+        if (!cachedThumb) {
+          const { downloadThumb } = await import("@/lib/telegram/media-cache");
+          const thumb = await downloadThumb(client, chatId, messageId);
+          if (!cancelled && thumb) {
+            setThumbUrl(thumb);
+            setLoading(false);
+          }
+        }
       } catch (err) {
-        console.error("Video thumb failed:", err);
+        console.error("Video thumb (fast) failed:", err);
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
 
     return () => { cancelled = true; };
+  }, [client, isVisible, chatId, messageId]);
+
+  // Step 2: Load full-quality thumbnail (through semaphore)
+  useEffect(() => {
+    if (!client || !isVisible || fullThumbUrl) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { downloadMessageMedia } = await import("@/lib/telegram/media-cache");
+        const result = await downloadMessageMedia(client, chatId, messageId);
+        if (!cancelled && result) setFullThumbUrl(result);
+      } catch (err) {
+        console.error("Video thumb (full) failed:", err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [client, isVisible, chatId, messageId, fullThumbUrl]);
+
+  // Step 3: Preload full video (≤10MB) and auto-play muted in loop
+  // Separate effect to avoid race condition: Step 2 sets fullThumbUrl which
+  // triggers effect cleanup via dependency array, cancelling the preload.
+  useEffect(() => {
+    if (!client || !isVisible || videoUrl) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const { preloadVideoStart } = await import("@/lib/telegram/media-cache");
+        const preloadedUrl = await preloadVideoStart(client, chatId, messageId);
+        if (!cancelled && preloadedUrl) {
+          setVideoUrl(preloadedUrl);
+          setAutoStarted(true);
+          setPlayingInline(true);
+        }
+      } catch (err) {
+        console.error("Video preload failed:", err);
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, isVisible, chatId, messageId]);
 
   const maxW = 320;
@@ -336,8 +397,14 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
   };
 
   const handleClick = async () => {
+    // If already playing inline — open fullscreen MediaViewer
+    if (playingInline && videoUrl) {
+      openMediaViewer(videoUrl, "video", messageId, chatId);
+      return;
+    }
+    // If video already downloaded — play inline
     if (videoUrl) {
-      openMediaViewer(videoUrl, "video");
+      setPlayingInline(true);
       return;
     }
     if (!client || downloading) return;
@@ -350,7 +417,7 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
       });
       if (result) {
         setVideoUrl(result.url);
-        openMediaViewer(result.url, "video");
+        setPlayingInline(true);
       }
     } catch (err) {
       console.error("Video download error:", err);
@@ -359,6 +426,40 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
     }
   };
 
+  const displayUrl = fullThumbUrl || thumbUrl;
+
+  // Inline video playback mode — embed VideoPlayer directly in chat
+  if (playingInline && videoUrl) {
+    return (
+      <div
+        ref={containerRef}
+        className="relative rounded-lg overflow-hidden mb-1"
+        style={{ width: displayW, height: displayH }}
+      >
+        <VideoPlayer
+          src={videoUrl}
+          messageId={messageId}
+          chatId={chatId}
+          autoPlay
+          initialMuted={autoStarted}
+          initialLoop={autoStarted}
+          className="w-full h-full"
+        />
+        {/* Expand to fullscreen overlay button */}
+        <button
+          className="absolute top-2 right-2 z-20 h-7 w-7 rounded-full bg-black/50 flex items-center justify-center backdrop-blur-sm hover:bg-black/70 transition-colors"
+          onClick={(e) => {
+            e.stopPropagation();
+            openMediaViewer(videoUrl, "video", messageId, chatId);
+          }}
+          title="На весь экран"
+        >
+          <Maximize2 className="h-3.5 w-3.5 text-white" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}
@@ -366,10 +467,14 @@ function VideoThumbnail({ chatId, messageId, width, height, duration }: {
       style={{ width: displayW, height: displayH }}
       onClick={handleClick}
     >
-      {loading || !thumbUrl ? (
+      {loading || !displayUrl ? (
         <div className="w-full h-full bg-muted/50 animate-pulse" />
       ) : (
-        <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
+        <img
+          src={displayUrl}
+          alt=""
+          className="w-full h-full object-cover"
+        />
       )}
       <div className="absolute inset-0 flex items-center justify-center">
         {downloading ? (
