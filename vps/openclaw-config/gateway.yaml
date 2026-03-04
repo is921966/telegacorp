@@ -1,0 +1,63 @@
+# =============================================================================
+# OpenClaw Gateway Configuration
+# Telegram Corp — AI Agent Factory
+# =============================================================================
+
+gateway:
+  name: telegram-corp-gateway
+  version: "1.0"
+
+# MCP Tool Servers
+mcp:
+  servers:
+    - name: telegram-corporate
+      url: http://mcp-tools:3100
+      description: "Corporate Telegram bridge — send messages, search archive, manage patterns"
+
+# Static agents (always running)
+agents:
+  - id: observer
+    name: "Corp Observer"
+    workspace: ./workspaces/observer
+    model: deepseek-v3
+    tools:
+      allow: [read, mcp]
+      deny: [write, exec, browser]
+    heartbeat:
+      interval: "*/30 * * * *"  # Every 30 minutes
+    description: >
+      Наблюдает за обнаруженными паттернами автоматизации,
+      формирует proposals для новых агентов.
+
+  - id: orchestrator
+    name: "Agent Orchestrator"
+    workspace: ./workspaces/orchestrator
+    model: claude-sonnet-4-20250514
+    tools:
+      allow: [read, write, exec, mcp]
+      deny: [browser]
+    cron:
+      - schedule: "0 9 * * 1"    # Monday 9:00
+        task: "Weekly agent performance review"
+      - schedule: "0 */4 * * *"  # Every 4 hours
+        task: "Check agent health and metrics"
+    description: >
+      Оркестрирует жизненный цикл агентов: создание, тестирование,
+      деплой, мониторинг, retire.
+
+# Dynamic agent discovery (runtime)
+auto_discover:
+  enabled: true
+  source: supabase
+  table: agents
+  status_filter: ["active", "canary", "shadow"]
+  refresh_interval: 60  # seconds
+  workspace_base: /opt/agent-workspaces
+
+# Global settings
+settings:
+  default_model: deepseek-v3
+  max_concurrent_agents: 10
+  budget_cap_usd: 500
+  log_level: info
+  timezone: Europe/Moscow

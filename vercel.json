@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/admin/cron/collect-messages",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/admin/cron/collect-events",
+      "schedule": "0 */1 * * *"
+    },
+    {
+      "path": "/api/admin/cron/check-drift",
+      "schedule": "0 */6 * * *"
+    }
+  ]
+}

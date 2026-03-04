@@ -7,9 +7,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ChatListItem } from "./ChatListItem";
 import { SidebarHeader } from "./SidebarHeader";
 import { FolderTabs } from "./FolderTabs";
+import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { useDialogs } from "@/hooks/useDialogs";
 import { useUIStore } from "@/store/ui";
 import { useFoldersStore } from "@/store/folders";
+import { useCorporateStore } from "@/store/corporate";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
 import { Search, Loader2, Users, Phone, MessageCircle, Settings, SlidersHorizontal } from "lucide-react";
 
@@ -17,12 +19,23 @@ export function ChatList() {
   const { dialogs, isLoading, isLoadingMore, hasMore, loadMore } = useDialogs();
   const { selectedChatId, selectChat, currentView, setCurrentView } = useUIStore();
   const { client, isConnected } = useTelegramClient();
+  const workspace = useCorporateStore((s) => s.workspace);
+  const managedChatIds = useCorporateStore((s) => s.managedChatIds);
+  const isCorpLoaded = useCorporateStore((s) => s.isLoaded);
+  const loadCorpConfig = useCorporateStore((s) => s.loadConfig);
   const [filter, setFilter] = useState("");
 
   // Shared folder state
   const { folders, selectedFolder, setFolders, setSelectedFolder } = useFoldersStore();
 
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // Load corporate config on mount
+  useEffect(() => {
+    if (!isCorpLoaded) {
+      loadCorpConfig();
+    }
+  }, [isCorpLoaded, loadCorpConfig]);
 
   // Load folders
   useEffect(() => {
@@ -54,9 +67,14 @@ export function ChatList() {
     });
   }, [folders, dialogs]);
 
-  // Filter dialogs by folder and search text
+  // Filter dialogs by workspace, folder, and search text
   const filtered = useMemo(() => {
     let result = dialogs;
+
+    // Workspace filtering: "work" shows only managed chats, "personal" shows all
+    if (workspace === "work" && managedChatIds.size > 0) {
+      result = result.filter((d) => managedChatIds.has(d.id));
+    }
 
     if (selectedFolder !== 0 && folders.length > 0) {
       const folder = folders.find((f) => f.id === selectedFolder);
@@ -73,7 +91,7 @@ export function ChatList() {
       );
     }
     return result;
-  }, [dialogs, filter, selectedFolder, folders]);
+  }, [dialogs, filter, selectedFolder, folders, workspace, managedChatIds]);
 
   // Sort matching Telegram's behavior:
   // - Pinned dialogs first (in their API order)
@@ -145,6 +163,11 @@ export function ChatList() {
   return (
     <div className="flex h-full flex-col min-h-0">
       <SidebarHeader />
+
+      {/* Workspace switcher (only visible when user has managed chats) */}
+      <div className="px-2 pt-1 md:px-2">
+        <WorkspaceSwitcher />
+      </div>
 
       <div className="px-2 py-1 md:p-2">
         <div className="relative">

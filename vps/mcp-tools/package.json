@@ -1,0 +1,21 @@
+{
+  "name": "mcp-telegram-corporate",
+  "version": "1.0.0",
+  "description": "MCP Server — Telegram Corporate bridge for OpenClaw agents",
+  "main": "dist/telegram-corporate.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/telegram-corporate.js",
+    "dev": "tsx watch src/telegram-corporate.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0",
+    "@types/express": "^5.0.0"
+  }
+}

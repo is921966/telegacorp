@@ -1,0 +1,37 @@
+# Conversation Intelligence Layer — Configuration
+
+redis:
+  stream_key: "corp:messages"
+  consumer_group: "ci-workers"
+  consumer_name: "ci-worker-1"
+  batch_size: 10
+  block_ms: 5000
+
+qdrant:
+  collection_name: "telegram_messages"
+  embedding_dim: 384  # all-MiniLM-L6-v2
+
+intent_classifier:
+  model: "gpt-4o-mini"
+  categories:
+    - question
+    - task
+    - data_request
+    - coordination
+    - complaint
+    - manual_routine
+    - small_talk
+  confidence_threshold: 0.6
+
+pattern_miner:
+  min_frequency: 3          # Minimum occurrences to count as a pattern
+  lookback_days: 30         # Days of history to analyze
+  min_confidence: 0.5       # Minimum confidence for pattern detection
+  hourly_rate_usd: 25       # Assumed employee hourly rate for ROI
+
+embeddings:
+  model: "sentence-transformers/all-MiniLM-L6-v2"
+  batch_size: 32
+
+supabase:
+  patterns_table: "automation_patterns"

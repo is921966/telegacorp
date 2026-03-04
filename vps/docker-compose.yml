@@ -1,0 +1,120 @@
+version: "3.9"
+
+# =============================================================================
+# Telegram Corp — VPS Infrastructure
+# AI Agent Factory: Message Stream + Conversation Intelligence + OpenClaw
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Redis 7 — Message streams (corp:messages) + caching
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 1gb
+      --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — Vector DB for message embeddings
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.12.5
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Message Stream Service — GramJS long-running → Redis Streams
+  # ---------------------------------------------------------------------------
+  message-stream:
+    build:
+      context: ./message-stream-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379
+      VERCEL_API_URL: ${VERCEL_API_URL}
+      SERVICE_API_TOKEN: ${SERVICE_API_TOKEN}
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TELEGRAM_SESSION: ${TELEGRAM_SESSION}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      NODE_ENV: production
+    volumes:
+      - stream-data:/app/data
+
+  # ---------------------------------------------------------------------------
+  # Conversation Intelligence — Python NLP pipeline
+  # ---------------------------------------------------------------------------
+  conversation-intelligence:
+    build:
+      context: ./conversation-intelligence
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379
+      QDRANT_URL: http://qdrant:6333
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      CI_CONSUMER_GROUP: ci-workers
+      CI_CONSUMER_NAME: ci-worker-1
+      CI_BATCH_SIZE: 10
+      CI_BLOCK_MS: 5000
+    volumes:
+      - ci-data:/app/data
+
+  # ---------------------------------------------------------------------------
+  # MCP Tools — Telegram Corporate bridge for OpenClaw agents
+  # ---------------------------------------------------------------------------
+  mcp-tools:
+    build:
+      context: ./mcp-tools
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    environment:
+      PORT: 3100
+      VERCEL_API_URL: ${VERCEL_API_URL}
+      SERVICE_API_TOKEN: ${SERVICE_API_TOKEN}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+
+volumes:
+  redis-data:
+  qdrant-data:
+  stream-data:
+  ci-data:
