@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, Loader2, MessageSquare } from "lucide-react";
+import { X, Loader2, MessageSquare, ArrowLeft } from "lucide-react";
 import { useUIStore } from "@/store/ui";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
 import { MessageItem } from "./MessageItem";
@@ -94,10 +94,23 @@ export function CommentThread() {
   if (!commentThread) return null;
 
   return (
-    <div className="flex flex-col w-[380px] min-w-[320px] border-l border-border bg-background h-full">
+    <div className={[
+      "flex flex-col bg-background h-full",
+      // Desktop: side panel
+      "md:w-[380px] md:min-w-[320px] md:border-l md:border-border",
+      // Mobile: full-screen overlay
+      "max-md:absolute max-md:inset-0 max-md:z-40 max-md:w-full",
+    ].join(" ")}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2">
+          {/* Mobile: back arrow */}
+          <button
+            onClick={closeCommentThread}
+            className="p-1 rounded hover:bg-muted transition-colors md:hidden"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
           <MessageSquare className="h-5 w-5 text-blue-400" />
           <span className="font-medium text-sm">
             Комментарии
@@ -106,9 +119,10 @@ export function CommentThread() {
             )}
           </span>
         </div>
+        {/* Desktop: X close button */}
         <button
           onClick={closeCommentThread}
-          className="p-1 rounded hover:bg-muted transition-colors"
+          className="p-1 rounded hover:bg-muted transition-colors hidden md:block"
         >
           <X className="h-5 w-5" />
         </button>

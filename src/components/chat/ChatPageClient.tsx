@@ -14,7 +14,7 @@ export function ChatPageClient() {
   if (!selectedChatId) return null;
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
+    <div className="flex h-full min-h-0 overflow-hidden relative">
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         <ChatHeader />
         <SearchBar />
