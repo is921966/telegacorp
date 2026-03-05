@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-const CACHE_NAME = "tg-corp-v3";
+const CACHE_NAME = "tg-corp-v4";
 const OFFLINE_URL = "/offline.html";
 
 // Static assets to pre-cache on install
