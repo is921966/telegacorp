@@ -59,6 +59,8 @@ export function TelegramAuthFlow() {
     const { resetClient } = await import("@/lib/telegram/client");
     await resetClient();
 
+    console.log("[TG Auth] Connecting to Telegram...");
+
     // Connect to Telegram with timeout
     let client: import("telegram").TelegramClient;
     try {
@@ -67,7 +69,9 @@ export function TelegramAuthFlow() {
         CONNECT_TIMEOUT_MS,
         "Не удалось подключиться к Telegram. Проверьте интернет-соединение."
       );
+      console.log("[TG Auth] Connected successfully");
     } catch (err) {
+      console.error("[TG Auth] Connection failed:", err);
       const msg = err instanceof Error ? err.message : "Ошибка подключения";
       setTelegramAuthState({ error: msg });
       throw err; // PhoneInput catches this and stops loading
@@ -79,9 +83,15 @@ export function TelegramAuthFlow() {
       const { saveSession } = await import("@/lib/telegram/client");
       const { saveTelegramSession } = await import("@/lib/supabase/session-store");
 
+      console.log("[TG Auth] Starting auth for phone:", phone.slice(0, 4) + "***");
+
       await startTelegramAuth(client, {
-        onPhoneNumber: async () => phone,
+        onPhoneNumber: async () => {
+          console.log("[TG Auth] GramJS requested phone number");
+          return phone;
+        },
         onCode: async () => {
+          console.log("[TG Auth] Code sent! GramJS waiting for code input");
           // Code was sent! Signal PhoneInput to stop loading
           codeSentResolveRef.current?.();
           codeSentResolveRef.current = null;
@@ -96,13 +106,14 @@ export function TelegramAuthFlow() {
           });
         },
         onPassword: async (hint?: string) => {
+          console.log("[TG Auth] 2FA password requested, hint:", hint);
           setTelegramAuthState({ step: "password", passwordHint: hint });
           return new Promise<string>((resolve) => {
             passwordResolverRef.current = resolve;
           });
         },
         onError: (err: Error) => {
-          console.error("Telegram auth error:", err);
+          console.error("[TG Auth] Auth error:", err.message, err);
           const errorMsg = err.message || "Ошибка авторизации";
           setTelegramAuthState({ error: errorMsg });
 

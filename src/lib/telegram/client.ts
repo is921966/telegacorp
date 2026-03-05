@@ -4,6 +4,10 @@ import { StringSession } from "telegram/sessions";
 const apiId = Number(process.env.NEXT_PUBLIC_TELEGRAM_API_ID);
 const apiHash = (process.env.NEXT_PUBLIC_TELEGRAM_API_HASH || "").trim();
 
+if (typeof window !== "undefined") {
+  console.log("[TG Client] API_ID:", apiId, "API_HASH length:", apiHash.length);
+}
+
 let clientInstance: TelegramClient | null = null;
 let connectPromise: Promise<TelegramClient> | null = null;
 

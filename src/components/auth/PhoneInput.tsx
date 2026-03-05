@@ -14,12 +14,27 @@ export function PhoneInput({ onSubmit, error }: PhoneInputProps) {
   const [phone, setPhone] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  /** Normalize phone: keep only digits and leading '+' */
+  const normalizePhone = (raw: string): string => {
+    const trimmed = raw.trim();
+    const hasPlus = trimmed.startsWith("+");
+    const digits = trimmed.replace(/\D/g, "");
+    return hasPlus ? `+${digits}` : `+${digits}`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!phone || isLoading) return;
+
+    const normalized = normalizePhone(phone);
+    if (normalized.length < 8) {
+      // Too short — likely missing country code or digits
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await onSubmit(phone);
+      await onSubmit(normalized);
       // onSubmit resolves when code is sent → step changes to "code"
       // PhoneInput will unmount, but just in case:
     } catch {
