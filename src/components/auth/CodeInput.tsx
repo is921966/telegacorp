@@ -35,13 +35,16 @@ export function CodeInput({ phoneNumber, onSubmit, onBack, error }: CodeInputPro
             <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
           </svg>
         </div>
-        <h2 className="text-xl font-semibold">Enter Code</h2>
+        <h2 className="text-xl font-semibold">Введите код</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          We sent a code to <span className="font-medium text-foreground">{phoneNumber}</span>
+          Код отправлен на <span className="font-medium text-foreground">{phoneNumber}</span>
+        </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          Проверьте приложение Telegram на другом устройстве или SMS
         </p>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="code">Verification Code</Label>
+        <Label htmlFor="code">Код подтверждения</Label>
         <Input
           id="code"
           type="text"
@@ -57,10 +60,10 @@ export function CodeInput({ phoneNumber, onSubmit, onBack, error }: CodeInputPro
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button type="submit" className="w-full" disabled={isLoading || code.length < 5}>
-        {isLoading ? "Verifying..." : "Verify"}
+        {isLoading ? "Проверка..." : "Подтвердить"}
       </Button>
       <Button type="button" variant="ghost" className="w-full" onClick={onBack}>
-        Back
+        Назад
       </Button>
     </form>
   );

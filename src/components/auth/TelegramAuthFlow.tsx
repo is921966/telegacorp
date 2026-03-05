@@ -35,6 +35,9 @@ export function TelegramAuthFlow() {
   const codeSentResolveRef = useRef<(() => void) | null>(null);
   const codeSentRejectRef = useRef<((err: Error) => void) | null>(null);
 
+  // Track whether code was already sent (to suppress post-migration TIMEOUT noise)
+  const codeSentRef = useRef(false);
+
   if (!supabaseUser) {
     router.push("/auth");
     return null;
@@ -48,6 +51,7 @@ export function TelegramAuthFlow() {
   const startAuthFlow = useCallback(async (phone: string): Promise<void> => {
     setTelegramAuthState({ error: undefined });
     phoneNumberRef.current = phone;
+    codeSentRef.current = false;
 
     // Promise that resolves when code is sent to user, or rejects on error
     const codeSentPromise = new Promise<void>((resolve, reject) => {
@@ -92,7 +96,8 @@ export function TelegramAuthFlow() {
         },
         onCode: async () => {
           console.log("[TG Auth] Code sent! GramJS waiting for code input");
-          // Code was sent! Signal PhoneInput to stop loading
+          // Code was sent! Mark as sent + signal PhoneInput to stop loading
+          codeSentRef.current = true;
           codeSentResolveRef.current?.();
           codeSentResolveRef.current = null;
           codeSentRejectRef.current = null;
@@ -113,6 +118,13 @@ export function TelegramAuthFlow() {
           });
         },
         onError: (err: Error) => {
+          // After code is sent, GramJS may emit TIMEOUT errors during DC migration
+          // reconnection — these are harmless noise and should not disrupt the UI
+          if (codeSentRef.current && err.message === "TIMEOUT") {
+            console.warn("[TG Auth] Ignoring post-send TIMEOUT (DC migration noise)");
+            return;
+          }
+
           console.error("[TG Auth] Auth error:", err.message, err);
           const errorMsg = err.message || "Ошибка авторизации";
           setTelegramAuthState({ error: errorMsg });
