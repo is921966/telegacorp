@@ -8,6 +8,7 @@ import { CodeInput } from "@/components/auth/CodeInput";
 import { PasswordInput } from "@/components/auth/PasswordInput";
 import { useAuthStore } from "@/store/auth";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
+import type { CodeDeliveryType } from "@/lib/telegram/auth";
 
 type Resolver<T> = (value: T) => void;
 
@@ -91,19 +92,23 @@ export function TelegramAuthFlow() {
 
       await startTelegramAuth(client, {
         onPhoneNumber: async () => {
-          console.log("[TG Auth] GramJS requested phone number");
+          console.log("[TG Auth] Requesting phone number");
           return phone;
         },
-        onCode: async () => {
-          console.log("[TG Auth] Code sent! GramJS waiting for code input");
+        onCode: async (deliveryType: CodeDeliveryType) => {
+          console.log("[TG Auth] Code sent! Delivery type:", deliveryType);
           // Code was sent! Mark as sent + signal PhoneInput to stop loading
           codeSentRef.current = true;
           codeSentResolveRef.current?.();
           codeSentResolveRef.current = null;
           codeSentRejectRef.current = null;
 
-          // Show code input UI
-          setTelegramAuthState({ step: "code", phoneNumber: phone });
+          // Show code input UI with delivery type
+          setTelegramAuthState({
+            step: "code",
+            phoneNumber: phone,
+            codeDeliveryType: deliveryType,
+          });
 
           // Wait for user to enter the code
           return new Promise<string>((resolve) => {
@@ -118,13 +123,6 @@ export function TelegramAuthFlow() {
           });
         },
         onError: (err: Error) => {
-          // After code is sent, GramJS may emit TIMEOUT errors during DC migration
-          // reconnection — these are harmless noise and should not disrupt the UI
-          if (codeSentRef.current && err.message === "TIMEOUT") {
-            console.warn("[TG Auth] Ignoring post-send TIMEOUT (DC migration noise)");
-            return;
-          }
-
           console.error("[TG Auth] Auth error:", err.message, err);
           const errorMsg = err.message || "Ошибка авторизации";
           setTelegramAuthState({ error: errorMsg });
@@ -220,6 +218,7 @@ export function TelegramAuthFlow() {
           {telegramAuthState.step === "code" && (
             <CodeInput
               phoneNumber={phoneNumberRef.current}
+              deliveryType={telegramAuthState.codeDeliveryType}
               onSubmit={handleCodeSubmit}
               onBack={() => setTelegramAuthState({ step: "phone" })}
               error={telegramAuthState.error}

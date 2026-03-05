@@ -4,15 +4,18 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import type { CodeDeliveryType } from "@/lib/telegram/auth";
+import { deliveryTypeLabel } from "@/lib/telegram/auth";
 
 interface CodeInputProps {
   phoneNumber: string;
+  deliveryType?: CodeDeliveryType;
   onSubmit: (code: string) => Promise<void>;
   onBack: () => void;
   error?: string;
 }
 
-export function CodeInput({ phoneNumber, onSubmit, onBack, error }: CodeInputProps) {
+export function CodeInput({ phoneNumber, deliveryType, onSubmit, onBack, error }: CodeInputProps) {
   const [code, setCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -26,6 +29,10 @@ export function CodeInput({ phoneNumber, onSubmit, onBack, error }: CodeInputPro
     }
   };
 
+  const deliveryHint = deliveryType
+    ? `Код отправлен ${deliveryTypeLabel(deliveryType)}`
+    : "Проверьте приложение Telegram на другом устройстве или SMS";
+
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="text-center">
@@ -37,10 +44,10 @@ export function CodeInput({ phoneNumber, onSubmit, onBack, error }: CodeInputPro
         </div>
         <h2 className="text-xl font-semibold">Введите код</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Код отправлен на <span className="font-medium text-foreground">{phoneNumber}</span>
+          Номер: <span className="font-medium text-foreground">{phoneNumber}</span>
         </p>
         <p className="text-xs text-muted-foreground mt-2">
-          Проверьте приложение Telegram на другом устройстве или SMS
+          {deliveryHint}
         </p>
       </div>
       <div className="space-y-2">

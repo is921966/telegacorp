@@ -197,5 +197,6 @@ export interface TelegramAuthState {
   phoneNumber?: string;
   phoneCodeHash?: string;
   passwordHint?: string;
+  codeDeliveryType?: import("@/lib/telegram/auth").CodeDeliveryType;
   error?: string;
 }
