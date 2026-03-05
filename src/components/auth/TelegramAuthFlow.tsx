@@ -207,21 +207,31 @@ export function TelegramAuthFlow() {
 
   /** Resend code via SMS (auth.ResendCode) */
   const handleResendCode = async () => {
+    setTelegramAuthState({ error: undefined });
+    const { resendCode } = await import("@/lib/telegram/auth");
+    const { getExistingClient } = await import("@/lib/telegram/client");
+    const client = getExistingClient();
+    if (!client) {
+      const err = new Error("Нет подключения к Telegram. Нажмите «Назад» и попробуйте снова.");
+      setTelegramAuthState({ error: err.message });
+      throw err;
+    }
     try {
-      setTelegramAuthState({ error: undefined });
-      const { resendCode } = await import("@/lib/telegram/auth");
-      const { getExistingClient } = await import("@/lib/telegram/client");
-      const client = getExistingClient();
-      if (!client) {
-        setTelegramAuthState({ error: "Нет подключения к Telegram. Нажмите «Назад» и попробуйте снова." });
-        return;
-      }
       const newType = await resendCode(client);
       setTelegramAuthState({ codeDeliveryType: newType });
     } catch (err) {
       console.error("[TG Auth] Resend failed:", err);
-      const msg = err instanceof Error ? err.message : "Не удалось переотправить код";
+      const rawMsg = err instanceof Error ? err.message : String(err);
+
+      // User-friendly message for known errors
+      let msg: string;
+      if (rawMsg.includes("SEND_CODE_UNAVAILABLE")) {
+        msg = "SMS-отправка недоступна для данного номера. Код приходит только в приложение Telegram. Подождите 10–15 минут и попробуйте снова (← Назад).";
+      } else {
+        msg = rawMsg;
+      }
       setTelegramAuthState({ error: msg });
+      throw new Error(msg); // Rethrow so CodeInput knows it failed
     }
   };
 
