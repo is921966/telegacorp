@@ -111,8 +111,8 @@ export function CodeInput({
         </p>
       )}
 
-      <Button type="button" variant="ghost" className="w-full" onClick={onBack}>
-        Назад
+      <Button type="button" variant="secondary" className="w-full" onClick={onBack}>
+        ← Назад
       </Button>
     </form>
   );
