@@ -119,6 +119,10 @@ export interface TelegramMessage {
   forwardFrom?: ForwardInfo;
   /** Web page link preview */
   webPage?: WebPagePreview;
+  /** Agent info (if message is from an AI agent in work workspace) */
+  agentId?: string;
+  agentName?: string;
+  agentStatus?: string;
 }
 
 export interface TelegramMedia {

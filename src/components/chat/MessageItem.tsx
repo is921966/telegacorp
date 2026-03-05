@@ -20,8 +20,11 @@ import {
   Maximize2,
 } from "lucide-react";
 import { useUIStore } from "@/store/ui";
+import { useCorporateStore } from "@/store/corporate";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
 import { VideoPlayer } from "./VideoPlayer";
+import { AgentBadge } from "./AgentBadge";
+import { FeedbackButtons } from "./FeedbackButtons";
 
 const URL_REGEX = /(https?:\/\/[^\s<>"')\]]+)/g;
 
@@ -825,10 +828,12 @@ function ReactionBar({ reactions }: { reactions: TelegramMessage["reactions"] })
 export function MessageItem({ message, showSender, isGrouped }: MessageItemProps) {
   const isOutgoing = message.isOutgoing;
   const { setReplyTo, openCommentThread } = useUIStore();
+  const workspace = useCorporateStore((s) => s.workspace);
   const [showMenu, setShowMenu] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
 
   const isSticker = message.media?.type === "sticker";
+  const isAgentMessage = !!message.agentId && workspace === "work";
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -925,6 +930,15 @@ export function MessageItem({ message, showSender, isGrouped }: MessageItemProps
           </p>
         )}
 
+        {/* Agent badge — visible in work workspace for agent messages */}
+        {isAgentMessage && message.agentName && (
+          <AgentBadge
+            agentName={message.agentName}
+            status={message.agentStatus}
+            className="mb-1"
+          />
+        )}
+
         {/* Reply quote */}
         {message.replyToId && (
           <ReplyQuote
@@ -946,6 +960,15 @@ export function MessageItem({ message, showSender, isGrouped }: MessageItemProps
           <div className="whitespace-pre-wrap break-words">
             {renderFormattedText(message.text, message.entities)}
           </div>
+        )}
+
+        {/* Agent feedback buttons — visible in work workspace for agent messages */}
+        {isAgentMessage && message.agentId && (
+          <FeedbackButtons
+            agentId={message.agentId}
+            originalOutput={message.text}
+            className="mt-1"
+          />
         )}
 
         {/* Reactions */}

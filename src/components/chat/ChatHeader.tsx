@@ -10,10 +10,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useChatsStore } from "@/store/chats";
 import { useUIStore } from "@/store/ui";
+import { useCorporateStore } from "@/store/corporate";
 import { Search, MoreVertical, ArrowLeft, Users, Settings, Trash2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
 import { safeDate } from "@/lib/utils";
+import { MonitoringToggle } from "./MonitoringToggle";
 
 /** Format last seen in Russian */
 function formatLastSeen(raw?: Date | string, isOnline?: boolean): string {
@@ -62,9 +64,12 @@ function formatParticipants(count?: number, type?: string): string {
 export function ChatHeader() {
   const { selectedChatId, toggleSearch, toggleGroupInfo, selectChat, setCurrentView } = useUIStore();
   const { dialogs } = useChatsStore();
+  const workspace = useCorporateStore((s) => s.workspace);
+  const isManagedChat = useCorporateStore((s) => s.isManagedChat);
   const { client } = useTelegramClient();
   const dialog = dialogs.find((d) => d.id === selectedChatId);
   const [photoUrl, setPhotoUrl] = useState<string | undefined>();
+  const showMonitoring = workspace === "work" && selectedChatId && isManagedChat(selectedChatId);
 
   // Load avatar photo for header
   useEffect(() => {
@@ -127,6 +132,10 @@ export function ChatHeader() {
         </div>
       </div>
       <div className="flex items-center gap-1">
+        {/* AI Monitoring toggle — work workspace, managed chats only */}
+        {showMonitoring && selectedChatId && (
+          <MonitoringToggle chatId={selectedChatId} />
+        )}
         <Button variant="ghost" size="icon" onClick={toggleSearch}>
           <Search className="h-4 w-4" />
         </Button>

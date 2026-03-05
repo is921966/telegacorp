@@ -1,20 +1,30 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { ChatList } from "@/components/chat/ChatList";
 import { MediaViewer } from "@/components/chat/MediaViewer";
 import { GroupInfo } from "@/components/group/GroupInfo";
 import { BottomNav } from "@/components/chat/BottomNav";
 import { FolderSidebar } from "@/components/chat/FolderSidebar";
 import { ViewRouter } from "@/components/chat/ViewRouter";
+import { AgentInfoPanel } from "@/components/chat/AgentInfoPanel";
 import { useViewUrlSync } from "@/hooks/useViewUrlSync";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { useUIStore } from "@/store/ui";
+import { useCorporateStore } from "@/store/corporate";
 import { cn } from "@/lib/utils";
 
 export function ChatLayoutClient() {
   const { isSidebarOpen, selectedChatId, currentView } = useUIStore();
+  const loadConfig = useCorporateStore((s) => s.loadConfig);
+  const [agentPanelId, setAgentPanelId] = useState<string | null>(null);
   useViewUrlSync();
   useRealtimeUpdates();
+
+  // Load corporate config on mount
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
 
   // On mobile, hide the sidebar when:
   // 1. A chat is selected (and sidebar is closed) — original behavior
@@ -47,6 +57,13 @@ export function ChatLayoutClient() {
 
         {/* Group info sidebar */}
         <GroupInfo />
+
+        {/* Agent info panel — slides from right */}
+        <AgentInfoPanel
+          agentId={agentPanelId ?? ""}
+          isOpen={!!agentPanelId}
+          onClose={() => setAgentPanelId(null)}
+        />
 
         {/* Media viewer overlay */}
         <MediaViewer />
