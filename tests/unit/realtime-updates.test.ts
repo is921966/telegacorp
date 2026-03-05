@@ -15,6 +15,7 @@ const {
   MockUpdateEditChannelMessage,
   MockUpdateDeleteMessages,
   MockUpdateDeleteChannelMessages,
+  MockUpdateNewChannelMessage,
 } = vi.hoisted(() => {
   class MockPeerUser {
     userId: bigint;
@@ -97,6 +98,13 @@ const {
     }
   }
 
+  class MockUpdateNewChannelMessage {
+    message: MockMessage;
+    constructor(args: { message: MockMessage }) {
+      this.message = args.message;
+    }
+  }
+
   return {
     MockPeerUser,
     MockPeerChat,
@@ -106,6 +114,7 @@ const {
     MockUpdateEditChannelMessage,
     MockUpdateDeleteMessages,
     MockUpdateDeleteChannelMessages,
+    MockUpdateNewChannelMessage,
   };
 });
 
@@ -116,6 +125,7 @@ vi.mock("telegram", () => ({
     PeerChat: MockPeerChat,
     PeerChannel: MockPeerChannel,
     Message: MockMessage,
+    UpdateNewChannelMessage: MockUpdateNewChannelMessage,
     UpdateEditMessage: MockUpdateEditMessage,
     UpdateEditChannelMessage: MockUpdateEditChannelMessage,
     UpdateDeleteMessages: MockUpdateDeleteMessages,
@@ -262,10 +272,10 @@ describe("subscribeToNewMessages", () => {
     mockClient = createMockClient();
   });
 
-  it("registers an event handler on the client", () => {
+  it("registers two event handlers on the client (NewMessage + Raw)", () => {
     const handler = vi.fn();
     subscribeToNewMessages(mockClient as unknown as import("telegram").TelegramClient, handler);
-    expect(mockClient.addEventHandler).toHaveBeenCalledOnce();
+    expect(mockClient.addEventHandler).toHaveBeenCalledTimes(2);
   });
 
   it("returns an unsubscribe function", () => {
@@ -384,18 +394,18 @@ describe("subscribeToNewMessages", () => {
     expect(received.isOutgoing).toBe(true);
   });
 
-  it("unsubscribe removes the handler from client", () => {
+  it("unsubscribe removes both handlers from client", () => {
     const handler = vi.fn();
     const unsub = subscribeToNewMessages(
       mockClient as unknown as import("telegram").TelegramClient,
       handler
     );
 
-    expect(mockClient.handlers).toHaveLength(1);
+    expect(mockClient.handlers).toHaveLength(2);
 
     unsub();
 
-    expect(mockClient.removeEventHandler).toHaveBeenCalledOnce();
+    expect(mockClient.removeEventHandler).toHaveBeenCalledTimes(2);
     expect(mockClient.handlers).toHaveLength(0);
   });
 
@@ -557,8 +567,9 @@ describe("handler leak prevention", () => {
     }
 
     expect(mockClient.handlers).toHaveLength(0);
-    expect(mockClient.addEventHandler).toHaveBeenCalledTimes(15);
-    expect(mockClient.removeEventHandler).toHaveBeenCalledTimes(15);
+    // subscribeToNewMessages registers 2 handlers, others register 1 each = 4 per cycle × 5 = 20
+    expect(mockClient.addEventHandler).toHaveBeenCalledTimes(20);
+    expect(mockClient.removeEventHandler).toHaveBeenCalledTimes(20);
   });
 
   it("without unsubscribe, handlers accumulate (demonstrates the bug)", () => {
@@ -571,10 +582,10 @@ describe("handler leak prevention", () => {
     subscribeToNewMessages(client, handler);
     subscribeToNewMessages(client, handler);
 
-    // 3 handlers accumulated — this was the bug!
-    expect(mockClient.handlers).toHaveLength(3);
+    // 6 handlers accumulated (2 per subscribe call) — this was the bug!
+    expect(mockClient.handlers).toHaveLength(6);
 
-    // A single message triggers the handler 3 times
+    // A single message triggers the handler 3 times (only NewMessage handlers dispatch, Raw handlers skip)
     const msg = new MockMessage({
       id: 1,
       peerId: new MockPeerUser({ userId: BigInt(1) }),
