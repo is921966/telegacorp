@@ -11,13 +11,23 @@ interface CodeInputProps {
   phoneNumber: string;
   deliveryType?: CodeDeliveryType;
   onSubmit: (code: string) => Promise<void>;
+  onResend?: () => Promise<void>;
   onBack: () => void;
   error?: string;
 }
 
-export function CodeInput({ phoneNumber, deliveryType, onSubmit, onBack, error }: CodeInputProps) {
+export function CodeInput({
+  phoneNumber,
+  deliveryType,
+  onSubmit,
+  onResend,
+  onBack,
+  error,
+}: CodeInputProps) {
   const [code, setCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [resendDone, setResendDone] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,9 +39,22 @@ export function CodeInput({ phoneNumber, deliveryType, onSubmit, onBack, error }
     }
   };
 
+  const handleResend = async () => {
+    if (!onResend || isResending) return;
+    setIsResending(true);
+    try {
+      await onResend();
+      setResendDone(true);
+    } catch {
+      // Error displayed via error prop
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   const deliveryHint = deliveryType
     ? `Код отправлен ${deliveryTypeLabel(deliveryType)}`
-    : "Проверьте приложение Telegram на другом устройстве или SMS";
+    : "Проверьте приложение Telegram или SMS";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -69,6 +92,25 @@ export function CodeInput({ phoneNumber, deliveryType, onSubmit, onBack, error }
       <Button type="submit" className="w-full" disabled={isLoading || code.length < 5}>
         {isLoading ? "Проверка..." : "Подтвердить"}
       </Button>
+
+      {/* Resend via SMS — shown when code was sent to app and user didn't get it */}
+      {onResend && !resendDone && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={handleResend}
+          disabled={isResending}
+        >
+          {isResending ? "Отправка..." : "Не пришёл код? Отправить по SMS"}
+        </Button>
+      )}
+      {resendDone && (
+        <p className="text-sm text-center text-green-600">
+          Код повторно отправлен — проверьте SMS
+        </p>
+      )}
+
       <Button type="button" variant="ghost" className="w-full" onClick={onBack}>
         Назад
       </Button>

@@ -205,6 +205,26 @@ export function TelegramAuthFlow() {
     }
   };
 
+  /** Resend code via SMS (auth.ResendCode) */
+  const handleResendCode = async () => {
+    try {
+      setTelegramAuthState({ error: undefined });
+      const { resendCode } = await import("@/lib/telegram/auth");
+      const { getExistingClient } = await import("@/lib/telegram/client");
+      const client = getExistingClient();
+      if (!client) {
+        setTelegramAuthState({ error: "Нет подключения к Telegram. Нажмите «Назад» и попробуйте снова." });
+        return;
+      }
+      const newType = await resendCode(client);
+      setTelegramAuthState({ codeDeliveryType: newType });
+    } catch (err) {
+      console.error("[TG Auth] Resend failed:", err);
+      const msg = err instanceof Error ? err.message : "Не удалось переотправить код";
+      setTelegramAuthState({ error: msg });
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
@@ -220,6 +240,7 @@ export function TelegramAuthFlow() {
               phoneNumber={phoneNumberRef.current}
               deliveryType={telegramAuthState.codeDeliveryType}
               onSubmit={handleCodeSubmit}
+              onResend={handleResendCode}
               onBack={() => setTelegramAuthState({ step: "phone" })}
               error={telegramAuthState.error}
             />

@@ -43,9 +43,65 @@ export function deliveryTypeLabel(type: CodeDeliveryType): string {
   return labels[type];
 }
 
+/** Result of sendCode — needed for resend and signIn */
+export interface SendCodeResult {
+  phoneCodeHash: string;
+  deliveryType: CodeDeliveryType;
+  phone: string;
+}
+
+/** Module-level state so resendCode can access it */
+let lastSendCodeResult: SendCodeResult | null = null;
+
+export function getLastSendCodeResult(): SendCodeResult | null {
+  return lastSendCodeResult;
+}
+
+/**
+ * Resend the verification code via an alternative method (usually SMS).
+ * Calls auth.ResendCode which uses the `nextType` from the original sendCode.
+ */
+export async function resendCode(
+  client: TelegramClient
+): Promise<CodeDeliveryType> {
+  if (!lastSendCodeResult) {
+    throw new Error("Сначала запросите код (sendCode не был вызван)");
+  }
+
+  const { phone, phoneCodeHash } = lastSendCodeResult;
+
+  console.log("[TG Auth] Resending code for:", phone.slice(0, 4) + "***");
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result: any = await client.invoke(
+    new Api.auth.ResendCode({
+      phoneNumber: phone,
+      phoneCodeHash: phoneCodeHash,
+    })
+  );
+
+  console.log("[TG Auth] ResendCode response:", JSON.stringify(result, (_k, v) =>
+    typeof v === "bigint" ? v.toString() : v
+  ));
+
+  const newDeliveryType = parseDeliveryType(
+    result.type?.className || "unknown"
+  );
+
+  // Update the hash if it changed
+  if (result.phoneCodeHash) {
+    lastSendCodeResult.phoneCodeHash = result.phoneCodeHash;
+  }
+  lastSendCodeResult.deliveryType = newDeliveryType;
+
+  console.log("[TG Auth] Resend delivery type:", newDeliveryType);
+  return newDeliveryType;
+}
+
 /**
  * Start the Telegram auth flow with manual sendCode + signIn.
- * Unlike client.start(), this gives us visibility into the code delivery type.
+ * Unlike client.start(), this gives us visibility into the code delivery type
+ * and allows resending via SMS.
  *
  * GramJS handles DC migration automatically during sendCode().
  */
@@ -84,24 +140,23 @@ export async function startTelegramAuth(
     sentCode.type?.className || (sentCode.isCodeViaApp ? "SentCodeTypeApp" : "unknown")
   );
   const phoneCodeHash: string = sentCode.phoneCodeHash || "";
+
+  // Store for resendCode
+  lastSendCodeResult = { phoneCodeHash, deliveryType, phone };
+
   console.log("[TG Auth] Code delivery type:", deliveryType);
   console.log("[TG Auth] Phone code hash:", phoneCodeHash.slice(0, 8) + "...");
-  if (sentCode.nextType) {
-    console.log("[TG Auth] Next type available:", sentCode.nextType?.className);
-  }
-  if (sentCode.timeout) {
-    console.log("[TG Auth] Timeout for next type:", sentCode.timeout, "sec");
-  }
 
   // Step 2: Get code from user (pass delivery type for UI hint)
   const code = await callbacks.onCode(deliveryType);
 
-  // Step 3: Sign in with the code
+  // Step 3: Sign in with the code (use latest hash — might have been updated by resend)
+  const currentHash = lastSendCodeResult?.phoneCodeHash || phoneCodeHash;
   try {
     await client.invoke(
       new Api.auth.SignIn({
         phoneNumber: phone,
-        phoneCodeHash: phoneCodeHash,
+        phoneCodeHash: currentHash,
         phoneCode: code,
       })
     );
