@@ -10,6 +10,7 @@ import { deliveryTypeLabel } from "@/lib/telegram/auth";
 interface CodeInputProps {
   phoneNumber: string;
   deliveryType?: CodeDeliveryType;
+  codeLength?: number;
   onSubmit: (code: string) => Promise<void>;
   onResend?: () => Promise<void>;
   onBack: () => void;
@@ -19,6 +20,7 @@ interface CodeInputProps {
 export function CodeInput({
   phoneNumber,
   deliveryType,
+  codeLength = 5,
   onSubmit,
   onResend,
   onBack,
@@ -82,14 +84,14 @@ export function CodeInput({
           placeholder="12345"
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-          maxLength={6}
+          maxLength={codeLength + 1}
           required
           autoFocus
           className="text-center text-2xl tracking-widest"
         />
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <Button type="submit" className="w-full" disabled={isLoading || code.length < 5}>
+      <Button type="submit" className="w-full" disabled={isLoading || code.length < codeLength}>
         {isLoading ? "Проверка..." : "Подтвердить"}
       </Button>
 

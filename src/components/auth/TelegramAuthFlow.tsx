@@ -103,11 +103,16 @@ export function TelegramAuthFlow() {
           codeSentResolveRef.current = null;
           codeSentRejectRef.current = null;
 
+          // Get code length from auth module for dynamic UI
+          const { getLastSendCodeResult } = await import("@/lib/telegram/auth");
+          const lastResult = getLastSendCodeResult();
+
           // Show code input UI with delivery type
           setTelegramAuthState({
             step: "code",
             phoneNumber: phone,
             codeDeliveryType: deliveryType,
+            codeLength: lastResult?.codeLength,
           });
 
           // Wait for user to enter the code
@@ -249,6 +254,7 @@ export function TelegramAuthFlow() {
             <CodeInput
               phoneNumber={phoneNumberRef.current}
               deliveryType={telegramAuthState.codeDeliveryType}
+              codeLength={telegramAuthState.codeLength}
               onSubmit={handleCodeSubmit}
               onResend={handleResendCode}
               onBack={() => setTelegramAuthState({ step: "phone" })}

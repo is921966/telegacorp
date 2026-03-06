@@ -48,6 +48,7 @@ export interface SendCodeResult {
   phoneCodeHash: string;
   deliveryType: CodeDeliveryType;
   phone: string;
+  codeLength?: number;
 }
 
 /** Module-level state so resendCode can access it */
@@ -99,11 +100,62 @@ export async function resendCode(
 }
 
 /**
- * Start the Telegram auth flow with manual sendCode + signIn.
- * Unlike client.start(), this gives us visibility into the code delivery type
- * and allows resending via SMS.
+ * Cancel any previous auth attempt for the given phone number.
+ * This resets Telegram's auth state so a fresh code can be sent.
+ */
+async function cancelPreviousAuth(
+  client: TelegramClient,
+  phone: string,
+  phoneCodeHash: string
+): Promise<void> {
+  try {
+    console.log("[TG Auth] Cancelling previous auth for:", phone.slice(0, 4) + "***");
+    await client.invoke(
+      new Api.auth.CancelCode({
+        phoneNumber: phone,
+        phoneCodeHash: phoneCodeHash,
+      })
+    );
+    console.log("[TG Auth] Previous auth cancelled successfully");
+  } catch (err) {
+    // CancelCode may fail if there's no active auth — that's OK
+    const rpcErr = err as { errorMessage?: string };
+    console.log("[TG Auth] CancelCode result:", rpcErr.errorMessage || "ok");
+  }
+}
+
+/**
+ * Deep-inspect a TL object and log all its fields for debugging.
+ * GramJS TL objects have nested className properties.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function inspectTLObject(obj: any, prefix = ""): void {
+  if (!obj || typeof obj !== "object") {
+    console.log(`${prefix} = ${obj}`);
+    return;
+  }
+  if (obj.className) {
+    console.log(`${prefix}.className = ${obj.className}`);
+  }
+  for (const key of Object.keys(obj)) {
+    if (key === "className" || key.startsWith("_")) continue;
+    const val = obj[key];
+    if (val && typeof val === "object" && val.className) {
+      inspectTLObject(val, `${prefix}.${key}`);
+    } else if (typeof val === "bigint") {
+      console.log(`${prefix}.${key} = ${val.toString()} (bigint)`);
+    } else if (val !== undefined && val !== null) {
+      console.log(`${prefix}.${key} = ${JSON.stringify(val)}`);
+    }
+  }
+}
+
+/**
+ * Start the Telegram auth flow with DIRECT auth.SendCode invocation.
+ * Uses raw TL API instead of GramJS wrapper for full response visibility.
+ * Cancels any previous auth attempt before sending a fresh code.
  *
- * GramJS handles DC migration automatically during sendCode().
+ * GramJS handles DC migration automatically during invoke().
  */
 export async function startTelegramAuth(
   client: TelegramClient,
@@ -119,33 +171,93 @@ export async function startTelegramAuth(
   const apiId = Number(process.env.NEXT_PUBLIC_TELEGRAM_API_ID);
   const apiHash = (process.env.NEXT_PUBLIC_TELEGRAM_API_HASH || "").trim();
 
-  // Step 1: Send code — GramJS handles DC migration internally
+  console.log("[TG Auth] ========== AUTH DIAGNOSTIC START ==========");
+  console.log("[TG Auth] Phone:", phone.slice(0, 4) + "****" + phone.slice(-2));
+  console.log("[TG Auth] API ID:", apiId);
+  console.log("[TG Auth] API Hash:", apiHash.slice(0, 8) + "...");
+  console.log("[TG Auth] Client connected:", client.connected);
+  console.log("[TG Auth] Timestamp:", new Date().toISOString());
+
+  // Cancel any previous auth attempt to force a fresh code
+  if (lastSendCodeResult && lastSendCodeResult.phone === phone) {
+    await cancelPreviousAuth(client, phone, lastSendCodeResult.phoneCodeHash);
+    lastSendCodeResult = null;
+  }
+
+  // Step 1: Send code via DIRECT TL API invocation (not client.sendCode wrapper)
+  // This gives us the full auth.SentCode TL response with all fields
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let sentCode: any;
   try {
-    sentCode = await client.sendCode({ apiId, apiHash }, phone);
-  } catch (err) {
-    callbacks.onError(
-      err instanceof Error ? err : new Error(String(err))
+    console.log("[TG Auth] Invoking auth.SendCode directly...");
+    sentCode = await client.invoke(
+      new Api.auth.SendCode({
+        phoneNumber: phone,
+        apiId: apiId,
+        apiHash: apiHash,
+        settings: new Api.CodeSettings({
+          allowFlashcall: false,
+          currentNumber: false,
+          allowAppHash: true,
+          allowMissedCall: false,
+          allowFirebase: false,
+        }),
+      })
     );
-    throw err;
+  } catch (err) {
+    console.error("[TG Auth] auth.SendCode FAILED:", err);
+    // Check for PHONE_MIGRATE_X — GramJS should handle this automatically
+    const rpcErr = err as { errorMessage?: string };
+    if (rpcErr.errorMessage?.startsWith("PHONE_MIGRATE_")) {
+      console.log("[TG Auth] DC migration required:", rpcErr.errorMessage);
+      console.log("[TG Auth] Falling back to client.sendCode() for auto-migration...");
+      // Fallback to GramJS wrapper which handles DC migration
+      try {
+        sentCode = await client.sendCode({ apiId, apiHash }, phone);
+      } catch (err2) {
+        callbacks.onError(
+          err2 instanceof Error ? err2 : new Error(String(err2))
+        );
+        throw err2;
+      }
+    } else {
+      callbacks.onError(
+        err instanceof Error ? err : new Error(String(err))
+      );
+      throw err;
+    }
   }
 
-  // Log full response for debugging
-  console.log("[TG Auth] sendCode response:", JSON.stringify(sentCode, (_k, v) =>
+  // Log FULL TL response — every field
+  console.log("[TG Auth] ===== sendCode RAW RESPONSE =====");
+  console.log("[TG Auth] Response className:", sentCode?.className);
+  inspectTLObject(sentCode, "[TG Auth] sentCode");
+  console.log("[TG Auth] JSON:", JSON.stringify(sentCode, (_k, v) =>
     typeof v === "bigint" ? v.toString() : v
-  ));
+  , 2));
+  console.log("[TG Auth] ===== END RAW RESPONSE =====");
 
-  const deliveryType = parseDeliveryType(
-    sentCode.type?.className || (sentCode.isCodeViaApp ? "SentCodeTypeApp" : "unknown")
-  );
-  const phoneCodeHash: string = sentCode.phoneCodeHash || "";
+  // Extract delivery type from the full TL response
+  const typeClassName: string =
+    sentCode?.type?.className ||
+    (sentCode?.isCodeViaApp ? "SentCodeTypeApp" : "unknown");
+  const deliveryType = parseDeliveryType(typeClassName);
+  const phoneCodeHash: string = sentCode?.phoneCodeHash || "";
+  const codeLength: number = sentCode?.type?.length || sentCode?.codeLength || 5;
+  const timeout: number | undefined = sentCode?.timeout;
+  const nextTypeClassName: string = sentCode?.nextType?.className || "none";
 
   // Store for resendCode
-  lastSendCodeResult = { phoneCodeHash, deliveryType, phone };
+  lastSendCodeResult = { phoneCodeHash, deliveryType, phone, codeLength };
 
-  console.log("[TG Auth] Code delivery type:", deliveryType);
-  console.log("[TG Auth] Phone code hash:", phoneCodeHash.slice(0, 8) + "...");
+  console.log("[TG Auth] ===== DELIVERY ANALYSIS =====");
+  console.log("[TG Auth] type.className:", typeClassName);
+  console.log("[TG Auth] Delivery type:", deliveryType);
+  console.log("[TG Auth] Code length:", codeLength);
+  console.log("[TG Auth] Timeout (until resend):", timeout, "seconds");
+  console.log("[TG Auth] nextType.className:", nextTypeClassName);
+  console.log("[TG Auth] Phone code hash:", phoneCodeHash);
+  console.log("[TG Auth] ===== END ANALYSIS =====");
 
   // Step 2: Get code from user (pass delivery type for UI hint)
   const code = await callbacks.onCode(deliveryType);
