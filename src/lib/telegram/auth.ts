@@ -303,6 +303,70 @@ export async function startTelegramAuth(
   }
 }
 
+/**
+ * QR code auth token data — passed to the UI for rendering.
+ */
+export interface QrTokenData {
+  /** Full tg:// login URL to encode as QR */
+  url: string;
+  /** Token expiration timestamp (unix seconds) */
+  expires: number;
+}
+
+/**
+ * Start the Telegram QR-code auth flow.
+ * Does NOT require sendCode or a phone number — user scans QR in Telegram mobile app.
+ *
+ * Flow:
+ * 1. Call auth.ExportLoginToken → get token + expiry
+ * 2. Show QR code with URL: tg://login?token=<base64url>
+ * 3. Wait for user to scan QR in Telegram mobile app
+ * 4. GramJS gets UpdateLoginToken → calls auth.ExportLoginToken again → gets LoginTokenSuccess
+ * 5. If 2FA enabled, prompt for password
+ *
+ * This avoids rate-limited sendCode entirely.
+ */
+export async function startQrAuth(
+  client: TelegramClient,
+  callbacks: {
+    onQrCode: (data: QrTokenData) => void;
+    onPassword: (hint?: string) => Promise<string>;
+    onError: (err: Error) => void;
+  }
+): Promise<void> {
+  const apiId = Number(process.env.NEXT_PUBLIC_TELEGRAM_API_ID);
+  const apiHash = (process.env.NEXT_PUBLIC_TELEGRAM_API_HASH || "").trim();
+
+  console.log("[TG Auth] ===== QR AUTH START =====");
+  console.log("[TG Auth] API ID:", apiId);
+  console.log("[TG Auth] Timestamp:", new Date().toISOString());
+
+  await client.signInUserWithQrCode(
+    { apiId, apiHash },
+    {
+      qrCode: async (qrCode: { token: Buffer; expires: number }) => {
+        const tokenBase64 = qrCode.token.toString("base64url");
+        const url = `tg://login?token=${tokenBase64}`;
+        console.log("[TG Auth] QR token generated, expires:", new Date(qrCode.expires * 1000).toISOString());
+        console.log("[TG Auth] QR URL:", url);
+        callbacks.onQrCode({ url, expires: qrCode.expires });
+      },
+      password: async (hint?: string) => {
+        console.log("[TG Auth] 2FA password requested for QR auth, hint:", hint);
+        return callbacks.onPassword(hint);
+      },
+      onError: async (err: Error) => {
+        console.error("[TG Auth] QR auth error:", err.message);
+        callbacks.onError(err);
+        // Return true to stop auth on error
+        return true;
+      },
+    }
+  );
+
+  console.log("[TG Auth] ===== QR AUTH COMPLETE =====");
+}
+
 export async function getMe(client: TelegramClient) {
   const me = await client.getMe();
   return {

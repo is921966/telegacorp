@@ -193,7 +193,7 @@ export interface GlobalSearchResults {
 }
 
 export interface TelegramAuthState {
-  step: "phone" | "code" | "password" | "done";
+  step: "phone" | "qr" | "code" | "password" | "done";
   phoneNumber?: string;
   phoneCodeHash?: string;
   passwordHint?: string;
