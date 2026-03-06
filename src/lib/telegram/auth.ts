@@ -12,8 +12,13 @@ export type CodeDeliveryType =
   | "email"
   | "unknown";
 
-/** Map GramJS class names to our delivery types */
+/** Map GramJS class names to our delivery types.
+ * GramJS TL objects may have className with or without "auth." prefix
+ * (e.g., "auth.SentCodeTypeApp" or "SentCodeTypeApp").
+ */
 function parseDeliveryType(className: string): CodeDeliveryType {
+  // Strip "auth." prefix if present (direct invoke returns "auth.SentCodeTypeApp")
+  const normalized = className.replace(/^auth\./, "");
   const map: Record<string, CodeDeliveryType> = {
     SentCodeTypeSms: "sms",
     SentCodeTypeApp: "app",
@@ -25,7 +30,7 @@ function parseDeliveryType(className: string): CodeDeliveryType {
     SentCodeTypeSetUpEmailRequired: "email",
     SentCodeTypeFirebaseSms: "sms",
   };
-  return map[className] || "unknown";
+  return map[normalized] || "unknown";
 }
 
 /** User-friendly delivery description (Russian) */

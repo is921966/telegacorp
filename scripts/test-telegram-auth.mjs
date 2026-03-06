@@ -197,7 +197,9 @@ async function main() {
   console.log(`  nextType:      ${nextType?.className || "none"}`);
   console.log(`  timeout:       ${timeout || "N/A"} seconds`);
 
-  // Delivery analysis
+  // Delivery analysis — handle both "SentCodeTypeApp" and "auth.SentCodeTypeApp" formats
+  const typeKey = (type?.className || "").replace(/^auth\./, "");
+  const nextTypeKey = (nextType?.className || "").replace(/^auth\./, "");
   const deliveryMap = {
     SentCodeTypeSms: "📱 SMS",
     SentCodeTypeApp: "📲 Telegram App (existing session required!)",
@@ -209,17 +211,17 @@ async function main() {
     SentCodeTypeFirebaseSms: "🔥 Firebase SMS",
   };
 
-  const deliveryLabel = deliveryMap[type?.className] || `❓ Unknown (${type?.className})`;
+  const deliveryLabel = deliveryMap[typeKey] || `❓ Unknown (${type?.className})`;
   console.log(`\n  🚀 DELIVERY METHOD: ${deliveryLabel}`);
 
-  if (type?.className === "SentCodeTypeApp") {
+  if (typeKey === "SentCodeTypeApp") {
     console.log("\n  ℹ️  Code sent to Telegram app. User MUST have an active");
     console.log("     Telegram session on another device to receive it.");
     console.log("     If they don't see it: code may be silently rate-limited.");
   }
 
-  if (nextType?.className) {
-    const nextLabel = deliveryMap[nextType.className] || nextType.className;
+  if (nextTypeKey) {
+    const nextLabel = deliveryMap[nextTypeKey] || nextType.className;
     console.log(`\n  ⏭  After ${timeout}s timeout, resend will use: ${nextLabel}`);
   }
 
