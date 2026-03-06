@@ -12,9 +12,9 @@ import { useUploadStore, getAbortController } from "@/store/upload";
 import { cn } from "@/lib/utils";
 
 export function MessageInput() {
-  const { selectedChatId, replyToMessageId, editingMessageId, setReplyTo, setEditing } =
+  const { selectedChatId, selectedTopicId, replyToMessageId, editingMessageId, setReplyTo, setEditing } =
     useUIStore();
-  const { send, edit } = useMessages(selectedChatId);
+  const { send, edit } = useMessages(selectedChatId, selectedTopicId);
   const { client } = useTelegramClient();
   const { messagesByChat } = useMessagesStore();
   const { dialogs } = useChatsStore();
@@ -36,7 +36,10 @@ export function MessageInput() {
       )
     : null;
 
-  const messages = selectedChatId ? messagesByChat[selectedChatId] || [] : [];
+  const storeKey = selectedChatId && selectedTopicId
+    ? `${selectedChatId}:topic:${selectedTopicId}`
+    : selectedChatId;
+  const messages = storeKey ? messagesByChat[storeKey] || [] : [];
   const dialog = dialogs.find((d) => d.id === selectedChatId);
   const isChannel = dialog?.type === "channel";
 

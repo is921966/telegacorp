@@ -47,14 +47,19 @@ export const useCorporateStore = create<CorporateStore>((set, get) => ({
   isLoaded: false,
   isLoading: false,
 
-  switchWorkspace: (ws) => set({ workspace: ws }),
+  switchWorkspace: (ws) => {
+    if (typeof document !== "undefined") {
+      document.documentElement.setAttribute("data-workspace", ws);
+    }
+    set({ workspace: ws });
+  },
 
   loadConfig: async () => {
     if (get().isLoading) return;
     set({ isLoading: true });
 
     try {
-      const res = await fetch("/api/admin/config");
+      const res = await fetch("/api/corporate/config");
       if (!res.ok) {
         // User may not be an admin — silently skip
         if (res.status === 401 || res.status === 403) {

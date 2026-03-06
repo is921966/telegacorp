@@ -5,6 +5,10 @@ export type ViewType = "chats" | "contacts" | "calls" | "search" | "settings";
 interface UIStore {
   currentView: ViewType;
   selectedChatId: string | null;
+  /** Currently selected forum topic ID (null = no topic selected) */
+  selectedTopicId: number | null;
+  /** Desktop: expanded forum chat ID in chat list (inline topic expansion) */
+  expandedForumChatId: string | null;
   isSearchOpen: boolean;
   searchQuery: string;
   isSidebarOpen: boolean;
@@ -21,6 +25,10 @@ interface UIStore {
 
   setCurrentView: (view: ViewType) => void;
   selectChat: (chatId: string | null) => void;
+  /** Select a forum topic — opens messages for that topic */
+  selectTopic: (chatId: string, topicId: number | null) => void;
+  /** Toggle forum expansion in desktop chat list */
+  expandForum: (chatId: string | null) => void;
   toggleSearch: () => void;
   setSearchQuery: (query: string) => void;
   toggleSidebar: () => void;
@@ -39,6 +47,8 @@ interface UIStore {
 export const useUIStore = create<UIStore>((set) => ({
   currentView: "chats" as ViewType,
   selectedChatId: null,
+  selectedTopicId: null,
+  expandedForumChatId: null,
   isSearchOpen: false,
   searchQuery: "",
   isSidebarOpen: true,
@@ -58,6 +68,7 @@ export const useUIStore = create<UIStore>((set) => ({
       currentView: view,
       // When switching away from chats, deselect the chat
       selectedChatId: view !== "chats" ? null : state.selectedChatId,
+      selectedTopicId: view !== "chats" ? null : state.selectedTopicId,
       isGroupInfoOpen: false,
       isSearchOpen: false,
       searchQuery: "",
@@ -71,12 +82,36 @@ export const useUIStore = create<UIStore>((set) => ({
     }
     set({
       selectedChatId: chatId,
+      selectedTopicId: null,
       currentView: "chats" as ViewType,
       isSidebarOpen: !chatId,
       isGroupInfoOpen: false,
       commentThread: null,
     });
   },
+
+  selectTopic: (chatId, topicId) => {
+    if (chatId) {
+      import("@/lib/chat-priority-tracker").then(({ recordChatOpen }) => {
+        recordChatOpen(chatId);
+      });
+    }
+    set({
+      selectedChatId: chatId,
+      selectedTopicId: topicId,
+      currentView: "chats" as ViewType,
+      isSidebarOpen: false,
+      isGroupInfoOpen: false,
+      commentThread: null,
+    });
+  },
+
+  expandForum: (chatId) =>
+    set((state) => ({
+      // Toggle: if same chatId → collapse, otherwise expand
+      expandedForumChatId:
+        state.expandedForumChatId === chatId ? null : chatId,
+    })),
 
   toggleSearch: () =>
     set((state) => ({
@@ -126,6 +161,8 @@ export const useUIStore = create<UIStore>((set) => ({
     set({
       currentView: "chats" as ViewType,
       selectedChatId: null,
+      selectedTopicId: null,
+      expandedForumChatId: null,
       isSearchOpen: false,
       searchQuery: "",
       isSidebarOpen: true,

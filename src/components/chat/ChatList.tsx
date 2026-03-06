@@ -5,37 +5,56 @@ import { Input } from "@/components/ui/input";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatListItem } from "./ChatListItem";
+import { TopicListItem } from "./TopicListItem";
 import { SidebarHeader } from "./SidebarHeader";
 import { FolderTabs } from "./FolderTabs";
 import { WorkspaceSwitcher } from "./WorkspaceSwitcher";
 import { useDialogs } from "@/hooks/useDialogs";
+import { useForumTopics } from "@/hooks/useForumTopics";
 import { useUIStore } from "@/store/ui";
 import { useFoldersStore } from "@/store/folders";
 import { useCorporateStore } from "@/store/corporate";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
+import type { TelegramDialog, TelegramForumTopic } from "@/types/telegram";
 import { Search, Loader2, Users, Phone, MessageCircle, Settings, SlidersHorizontal } from "lucide-react";
+
+/** Flat list item type: either a dialog row or a topic row */
+type FlatItem =
+  | { kind: "dialog"; dialog: TelegramDialog }
+  | { kind: "topic"; topic: TelegramForumTopic; chatId: string };
 
 export function ChatList() {
   const { dialogs, isLoading, isLoadingMore, hasMore, loadMore } = useDialogs();
-  const { selectedChatId, selectChat, currentView, setCurrentView } = useUIStore();
+  const {
+    selectedChatId,
+    selectedTopicId,
+    expandedForumChatId,
+    selectChat,
+    selectTopic,
+    expandForum,
+    currentView,
+    setCurrentView,
+  } = useUIStore();
   const { client, isConnected } = useTelegramClient();
   const workspace = useCorporateStore((s) => s.workspace);
   const managedChatIds = useCorporateStore((s) => s.managedChatIds);
-  const isCorpLoaded = useCorporateStore((s) => s.isLoaded);
-  const loadCorpConfig = useCorporateStore((s) => s.loadConfig);
   const [filter, setFilter] = useState("");
+
+  // Find the expanded forum dialog to get isForum flag
+  const expandedDialog = expandedForumChatId
+    ? dialogs.find((d) => d.id === expandedForumChatId)
+    : null;
+
+  // Load topics for expanded forum
+  const { topics: expandedTopics, isLoading: isTopicsLoading } = useForumTopics(
+    expandedForumChatId,
+    expandedDialog?.isForum ?? false
+  );
 
   // Shared folder state
   const { folders, selectedFolder, setFolders, setSelectedFolder } = useFoldersStore();
 
   const parentRef = useRef<HTMLDivElement>(null);
-
-  // Load corporate config on mount
-  useEffect(() => {
-    if (!isCorpLoaded) {
-      loadCorpConfig();
-    }
-  }, [isCorpLoaded, loadCorpConfig]);
 
   // Load folders
   useEffect(() => {
@@ -49,6 +68,11 @@ export function ChatList() {
       }
     })();
   }, [client, isConnected, setFolders]);
+
+  // Reset folder selection when workspace changes
+  useEffect(() => {
+    setSelectedFolder(0);
+  }, [workspace, setSelectedFolder]);
 
   // Compute folders with unread counts
   const foldersWithUnreads = useMemo(() => {
@@ -67,13 +91,39 @@ export function ChatList() {
     });
   }, [folders, dialogs]);
 
+  // Filter folders by workspace using actual dialog membership:
+  // - folder with ONLY managed chats → work only
+  // - folder with ONLY non-managed chats → personal only
+  // - folder with BOTH → shown in both workspaces
+  const workspaceFolders = useMemo(() => {
+    if (managedChatIds.size === 0) return foldersWithUnreads;
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { dialogMatchesFolder } = require("@/lib/telegram/dialogs");
+
+    return foldersWithUnreads.filter((folder) => {
+      if (folder.id === 0) return true; // "Все чаты" always shown
+      // Use dialogMatchesFolder to check actual membership (handles both includePeerIds AND flags)
+      const matchingDialogs = dialogs.filter((d: typeof dialogs[0]) => dialogMatchesFolder(d, folder));
+      const hasManagedChats = matchingDialogs.some((d: typeof dialogs[0]) => managedChatIds.has(d.id));
+      const hasPersonalChats = matchingDialogs.some((d: typeof dialogs[0]) => !managedChatIds.has(d.id));
+      // Mixed folders show in both workspaces
+      if (hasManagedChats && hasPersonalChats) return true;
+      return workspace === "work" ? hasManagedChats : hasPersonalChats;
+    });
+  }, [foldersWithUnreads, workspace, managedChatIds, dialogs]);
+
   // Filter dialogs by workspace, folder, and search text
   const filtered = useMemo(() => {
     let result = dialogs;
 
-    // Workspace filtering: "work" shows only managed chats, "personal" shows all
-    if (workspace === "work" && managedChatIds.size > 0) {
-      result = result.filter((d) => managedChatIds.has(d.id));
+    // Workspace filtering: "work" shows only managed chats, "personal" hides them
+    if (managedChatIds.size > 0) {
+      if (workspace === "work") {
+        result = result.filter((d) => managedChatIds.has(d.id));
+      } else {
+        result = result.filter((d) => !managedChatIds.has(d.id));
+      }
     }
 
     if (selectedFolder !== 0 && folders.length > 0) {
@@ -93,16 +143,11 @@ export function ChatList() {
     return result;
   }, [dialogs, filter, selectedFolder, folders, workspace, managedChatIds]);
 
-  // Sort matching Telegram's behavior:
-  // - Pinned dialogs first (in their API order)
-  // - Non-pinned: by lastMessage date (newest first), with apiOrder as fallback
-  // Using lastMessage.date instead of apiOrder ensures real-time bumps are always
-  // reflected correctly, even if setDialogs() overwrites apiOrder values.
+  // Sort matching Telegram's behavior
   const sorted = useMemo(() => {
     const currentFolder = folders.find((f) => f.id === selectedFolder);
     const pinnedIds = currentFolder?.pinnedPeerIds || [];
 
-    /** Get timestamp from dialog's lastMessage for sorting */
     const getTime = (d: typeof filtered[0]): number => {
       const raw = d.lastMessage?.date;
       if (!raw) return 0;
@@ -110,18 +155,14 @@ export function ChatList() {
     };
 
     if (selectedFolder === 0 || pinnedIds.length === 0) {
-      // "All chats" or folder without pinned
       return [...filtered].sort((a, b) => {
-        // Pinned first (by apiOrder among themselves)
         if (a.isPinned && b.isPinned) return a.apiOrder - b.apiOrder;
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
-        // Non-pinned: newest message first
         const timeDiff = getTime(b) - getTime(a);
         return timeDiff !== 0 ? timeDiff : a.apiOrder - b.apiOrder;
       });
     }
 
-    // Folder with pinned peers: pinned first (in pinnedPeerIds order), rest by date
     return [...filtered].sort((a, b) => {
       const aPinIdx = pinnedIds.indexOf(a.id);
       const bPinIdx = pinnedIds.indexOf(b.id);
@@ -130,17 +171,39 @@ export function ChatList() {
 
       if (aIsFolderPinned !== bIsFolderPinned) return aIsFolderPinned ? -1 : 1;
       if (aIsFolderPinned && bIsFolderPinned) return aPinIdx - bPinIdx;
-      // Non-pinned: newest message first
       const timeDiff = getTime(b) - getTime(a);
       return timeDiff !== 0 ? timeDiff : a.apiOrder - b.apiOrder;
     });
   }, [filtered, selectedFolder, folders]);
 
+  // Build flat list with expanded forum topics inline (desktop only)
+  const flatItems: FlatItem[] = useMemo(() => {
+    const items: FlatItem[] = [];
+    for (const dialog of sorted) {
+      items.push({ kind: "dialog", dialog });
+      // If this forum is expanded, insert its topics after the dialog
+      if (
+        dialog.isForum &&
+        expandedForumChatId === dialog.id &&
+        expandedTopics.length > 0
+      ) {
+        for (const topic of expandedTopics) {
+          if (topic.isHidden) continue; // Skip hidden General topic
+          items.push({ kind: "topic", topic, chatId: dialog.id });
+        }
+      }
+    }
+    return items;
+  }, [sorted, expandedForumChatId, expandedTopics]);
+
   // Virtualizer for performant list rendering
   const virtualizer = useVirtualizer({
-    count: sorted.length,
+    count: flatItems.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 68,
+    estimateSize: (index) => {
+      const item = flatItems[index];
+      return item?.kind === "topic" ? 56 : 68;
+    },
     overscan: 10,
   });
 
@@ -150,7 +213,7 @@ export function ChatList() {
     const lastItem = virtualItems[virtualItems.length - 1];
     if (!lastItem) return;
     if (
-      lastItem.index >= sorted.length - 10 &&
+      lastItem.index >= flatItems.length - 10 &&
       hasMore &&
       !filter &&
       selectedFolder === 0 &&
@@ -158,7 +221,27 @@ export function ChatList() {
     ) {
       loadMore();
     }
-  }, [virtualItems, sorted.length, hasMore, filter, selectedFolder, isLoadingMore, loadMore]);
+  }, [virtualItems, flatItems.length, hasMore, filter, selectedFolder, isLoadingMore, loadMore]);
+
+  /** Handle click on a dialog in the list */
+  const handleDialogClick = (dialog: TelegramDialog) => {
+    if (dialog.isForum) {
+      // Desktop: toggle inline expansion; Mobile: selectChat to show TopicsList
+      const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+      if (isMobile) {
+        selectChat(dialog.id);
+      } else {
+        expandForum(dialog.id);
+      }
+    } else {
+      selectChat(dialog.id);
+    }
+  };
+
+  /** Handle click on a topic */
+  const handleTopicClick = (chatId: string, topicId: number) => {
+    selectTopic(chatId, topicId);
+  };
 
   return (
     <div className="flex h-full flex-col min-h-0">
@@ -188,7 +271,7 @@ export function ChatList() {
 
       {/* Horizontal folder tabs — mobile only */}
       <FolderTabs
-        folders={foldersWithUnreads}
+        folders={workspaceFolders}
         selectedFolder={selectedFolder}
         onSelectFolder={setSelectedFolder}
       />
@@ -208,17 +291,23 @@ export function ChatList() {
                 </div>
               </div>
             ))
-          ) : sorted.length === 0 ? (
+          ) : flatItems.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
               {filter ? "Чаты не найдены" : "Нет диалогов"}
             </div>
           ) : (
             <div style={{ height: `${virtualizer.getTotalSize()}px`, position: "relative" }}>
               {virtualItems.map((virtualRow) => {
-                const dialog = sorted[virtualRow.index];
+                const item = flatItems[virtualRow.index];
+                if (!item) return null;
+
                 return (
                   <div
-                    key={dialog.id}
+                    key={
+                      item.kind === "dialog"
+                        ? item.dialog.id
+                        : `topic-${item.chatId}-${item.topic.id}`
+                    }
                     data-index={virtualRow.index}
                     ref={virtualizer.measureElement}
                     style={{
@@ -229,11 +318,30 @@ export function ChatList() {
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
-                    <ChatListItem
-                      dialog={dialog}
-                      isSelected={selectedChatId === dialog.id}
-                      onClick={() => selectChat(dialog.id)}
-                    />
+                    {item.kind === "dialog" ? (
+                      <ChatListItem
+                        dialog={item.dialog}
+                        isSelected={
+                          selectedChatId === item.dialog.id && !selectedTopicId
+                        }
+                        onClick={() => handleDialogClick(item.dialog)}
+                        isForumExpanded={
+                          item.dialog.isForum &&
+                          expandedForumChatId === item.dialog.id
+                        }
+                      />
+                    ) : (
+                      <TopicListItem
+                        topic={item.topic}
+                        isSelected={
+                          selectedChatId === item.chatId &&
+                          selectedTopicId === item.topic.id
+                        }
+                        onClick={() =>
+                          handleTopicClick(item.chatId, item.topic.id)
+                        }
+                      />
+                    )}
                   </div>
                 );
               })}

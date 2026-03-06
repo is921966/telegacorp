@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { useCorporateStore } from "@/store/corporate";
 import type { TelegramFolder } from "@/types/telegram";
 
 interface FolderTabsProps {
@@ -16,6 +17,10 @@ function formatUnread(count: number): string {
 
 /** Horizontal folder tabs — shown only on mobile (hidden on md+) */
 export function FolderTabs({ folders, selectedFolder, onSelectFolder }: FolderTabsProps) {
+  const isWorkMode = useCorporateStore((s) => s.workspace) === "work";
+  const accentColor = isWorkMode ? "text-teal-500" : "text-blue-500";
+  const accentBg = isWorkMode ? "bg-teal-500" : "bg-blue-500";
+
   if (folders.length <= 1) return null;
 
   return (
@@ -27,7 +32,7 @@ export function FolderTabs({ folders, selectedFolder, onSelectFolder }: FolderTa
           className={cn(
             "shrink-0 relative px-3 py-2 text-[13px] font-medium transition-colors whitespace-nowrap",
             selectedFolder === folder.id
-              ? "text-blue-500"
+              ? accentColor
               : "text-muted-foreground hover:text-foreground"
           )}
         >
@@ -38,7 +43,7 @@ export function FolderTabs({ folders, selectedFolder, onSelectFolder }: FolderTa
                 className={cn(
                   "inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none",
                   selectedFolder === folder.id
-                    ? "bg-blue-500 text-white"
+                    ? `${accentBg} text-white`
                     : "bg-muted-foreground/30 text-muted-foreground"
                 )}
               >
@@ -48,7 +53,7 @@ export function FolderTabs({ folders, selectedFolder, onSelectFolder }: FolderTa
           </span>
           {/* Underline indicator */}
           {selectedFolder === folder.id && (
-            <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-blue-500" />
+            <span className={cn("absolute bottom-0 left-2 right-2 h-[2px] rounded-full", accentBg)} />
           )}
         </button>
       ))}

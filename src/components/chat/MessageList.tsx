@@ -38,7 +38,7 @@ type VirtualItem =
   | { kind: "message"; message: TelegramMessage; isGrouped: boolean; showSender: boolean };
 
 export function MessageList() {
-  const { selectedChatId } = useUIStore();
+  const { selectedChatId, selectedTopicId } = useUIStore();
   const { dialogs } = useChatsStore();
   const {
     messages,
@@ -49,7 +49,7 @@ export function MessageList() {
     loadNewer,
     loadMessages,
     markChatAsRead,
-  } = useMessages(selectedChatId);
+  } = useMessages(selectedChatId, selectedTopicId);
   const parentRef = useRef<HTMLDivElement>(null);
   const isLoadingMoreRef = useRef(false);
   const isLoadingNewerRef = useRef(false);
@@ -259,7 +259,7 @@ export function MessageList() {
     }
   }, [isLoading]);
 
-  // Reset on chat switch
+  // Reset on chat/topic switch
   useEffect(() => {
     prevCountRef.current = 0;
     isLoadingMoreRef.current = false;
@@ -271,7 +271,7 @@ export function MessageList() {
       clearTimeout(markAsReadTimerRef.current);
       markAsReadTimerRef.current = null;
     }
-  }, [selectedChatId]);
+  }, [selectedChatId, selectedTopicId]);
 
   // Handle scroll: load more/newer, show/hide scroll button, mark as read
   const handleScroll = useCallback(() => {

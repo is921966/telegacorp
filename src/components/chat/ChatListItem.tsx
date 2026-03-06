@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import type { TelegramDialog } from "@/types/telegram";
 import { cn, safeDate } from "@/lib/utils";
 import { useLazyAvatar } from "@/hooks/useLazyAvatar";
+import { useCorporateStore } from "@/store/corporate";
 import {
   Pin,
   Check,
@@ -11,6 +12,7 @@ import {
   BellOff,
   BadgeCheck,
   Star,
+  Shield,
   Image,
   Video,
   FileText,
@@ -21,12 +23,16 @@ import {
   BarChart3,
   Film,
   Hash,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 interface ChatListItemProps {
   dialog: TelegramDialog;
   isSelected: boolean;
   onClick: () => void;
+  /** Whether this forum's topics are expanded (desktop) */
+  isForumExpanded?: boolean;
 }
 
 function getInitials(title: string): string {
@@ -114,8 +120,13 @@ export function ChatListItem({
   dialog,
   isSelected,
   onClick,
+  isForumExpanded,
 }: ChatListItemProps) {
   const { ref: avatarRef, avatarUrl: photoUrl } = useLazyAvatar(dialog.id);
+  const isManagedChat = useCorporateStore((s) => s.isManagedChat);
+  const workspace = useCorporateStore((s) => s.workspace);
+  const isCorporate = isManagedChat(dialog.id);
+  const isWorkMode = workspace === "work";
   const lastMsg = dialog.lastMessage;
   const mediaLabel = lastMsg?.mediaType ? getMediaLabel(lastMsg.mediaType) : null;
 
@@ -175,7 +186,8 @@ export function ChatListItem({
       className={cn(
         "flex w-full items-center gap-3 rounded-lg px-3 py-1.5 md:py-2.5 text-left transition-colors overflow-hidden",
         "hover:bg-accent/80",
-        isSelected && "bg-blue-500/15 hover:bg-blue-500/20 dark:bg-blue-500/20 dark:hover:bg-blue-500/25"
+        isSelected && !isWorkMode && "bg-blue-500/15 hover:bg-blue-500/20 dark:bg-blue-500/20 dark:hover:bg-blue-500/25",
+        isSelected && isWorkMode && "bg-teal-500/15 hover:bg-teal-500/20 dark:bg-teal-500/20 dark:hover:bg-teal-500/25"
       )}
     >
       {/* Avatar with online indicator */}
@@ -206,6 +218,9 @@ export function ChatListItem({
             <span className="truncate text-sm font-medium">
               {dialog.title}
             </span>
+            {isCorporate && (
+              <Shield className="h-3.5 w-3.5 shrink-0 text-teal-500 fill-teal-500/20" />
+            )}
             {dialog.isPremium && !dialog.isVerified && (
               <Star className="h-3.5 w-3.5 shrink-0 text-violet-500 fill-violet-500" />
             )}
@@ -213,7 +228,9 @@ export function ChatListItem({
               <BadgeCheck className="h-4 w-4 shrink-0 text-blue-500" />
             )}
             {dialog.isForum && (
-              <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+              isForumExpanded
+                ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+                : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
             )}
             {dialog.isMuted && (
               <BellOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
@@ -266,7 +283,9 @@ export function ChatListItem({
                   "flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold",
                   dialog.isMuted
                     ? "bg-muted-foreground/30 text-muted-foreground"
-                    : "bg-green-500 text-white"
+                    : isWorkMode
+                      ? "bg-teal-500 text-white"
+                      : "bg-green-500 text-white"
                 )}
               >
                 {dialog.unreadCount > 999

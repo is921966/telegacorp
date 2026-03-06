@@ -119,6 +119,16 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Work workspace accent — teal / professional */
+[data-workspace="work"] {
+  --sidebar-primary: oklch(0.55 0.15 195);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+}
+.dark[data-workspace="work"] {
+  --sidebar-primary: oklch(0.65 0.15 195);
+  --sidebar-primary-foreground: oklch(0.145 0 0);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

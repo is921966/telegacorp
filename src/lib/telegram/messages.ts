@@ -190,7 +190,7 @@ async function resolveEntity(client: TelegramClient, chatId: string): Promise<an
 }
 
 /** Map a single GramJS Api.Message to our TelegramMessage type */
-function mapApiMessage(
+export function mapApiMessage(
   msg: Api.Message,
   chatId: string,
   allMessages: Api.Message[]
@@ -244,7 +244,7 @@ function mapApiMessage(
 }
 
 /** Convert raw GramJS messages to TelegramMessage[] */
-function mapMessages(
+export function mapMessages(
   rawMessages: Api.TypeMessage[],
   chatId: string
 ): TelegramMessage[] {

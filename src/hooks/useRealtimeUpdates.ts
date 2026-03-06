@@ -5,6 +5,7 @@ import { useMessagesStore } from "@/store/messages";
 import { useChatsStore } from "@/store/chats";
 import { useUIStore } from "@/store/ui";
 import { useAuthStore } from "@/store/auth";
+import { useTopicsStore } from "@/store/topics";
 import type { TelegramClient } from "telegram";
 import type { TelegramDialog } from "@/types/telegram";
 
@@ -113,17 +114,53 @@ export function useRealtimeUpdates() {
         }
       };
 
-      // New messages — update both messages store and dialogs store
+      // New messages — update messages store, dialogs store, and topics store
       unsubscribersRef.current.push(
         subscribeToNewMessages(client, (msg) => {
+          const uiState = useUIStore.getState();
+          const isViewingChat = uiState.selectedChatId === msg.chatId;
+          const topicId = msg.forumTopicId;
+
+          // Add to regular chat store key
           useMessagesStore.getState().addMessage(msg.chatId, msg);
+
+          // If message belongs to a forum topic, also add to composite topic key
+          // so that an open topic view receives it in real-time
+          if (topicId) {
+            const topicStoreKey = `${msg.chatId}:topic:${topicId}`;
+            useMessagesStore.getState().addMessage(topicStoreKey, msg);
+
+            // Update topic in topics store (last message + unread count)
+            const topicsState = useTopicsStore.getState();
+            const isViewingTopic =
+              isViewingChat && uiState.selectedTopicId === topicId;
+
+            topicsState.updateTopicLastMessage(msg.chatId, topicId, {
+              text: msg.text || "",
+              date: msg.date instanceof Date ? msg.date : new Date(msg.date),
+              senderId: msg.senderId,
+              senderName: msg.senderName,
+              isOutgoing: msg.isOutgoing || false,
+            });
+
+            // Increment topic unread if not currently viewing this topic
+            if (!msg.isOutgoing && !isViewingTopic) {
+              const topics = topicsState.topicsByChat[msg.chatId];
+              const topic = topics?.find((t) => t.id === topicId);
+              if (topic) {
+                topicsState.updateTopicUnread(
+                  msg.chatId,
+                  topicId,
+                  topic.unreadCount + 1
+                );
+              }
+            }
+          }
 
           // Update dialog in chat list: lastMessage + unreadCount + re-sort
           const mediaType = msg.media?.type as
             | NonNullable<NonNullable<TelegramDialog["lastMessage"]>["mediaType"]>
             | undefined;
-          const isViewingChat =
-            useUIStore.getState().selectedChatId === msg.chatId;
 
           useChatsStore.getState().bumpDialog(
             msg.chatId,
@@ -169,6 +206,16 @@ export function useRealtimeUpdates() {
               text: msg.text,
               isEdited: true,
             });
+          // Also update in topic store key if applicable
+          if (msg.forumTopicId) {
+            const topicStoreKey = `${msg.chatId}:topic:${msg.forumTopicId}`;
+            useMessagesStore
+              .getState()
+              .updateMessage(topicStoreKey, msg.id, {
+                text: msg.text,
+                isEdited: true,
+              });
+          }
         })
       );
 
@@ -176,6 +223,8 @@ export function useRealtimeUpdates() {
       unsubscribersRef.current.push(
         subscribeToDeletedMessages(client, (deletedChatId, ids) => {
           useMessagesStore.getState().deleteMessages(deletedChatId, ids);
+          // Note: deleteMessages with unknown chatId iterates all keys,
+          // so topic composite keys are also covered automatically.
         })
       );
 

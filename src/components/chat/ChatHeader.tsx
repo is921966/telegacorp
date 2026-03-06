@@ -11,6 +11,7 @@ import {
 import { useChatsStore } from "@/store/chats";
 import { useUIStore } from "@/store/ui";
 import { useCorporateStore } from "@/store/corporate";
+import { useTopicsStore } from "@/store/topics";
 import { Search, MoreVertical, ArrowLeft, Users, Settings, Trash2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
@@ -62,14 +63,20 @@ function formatParticipants(count?: number, type?: string): string {
 }
 
 export function ChatHeader() {
-  const { selectedChatId, toggleSearch, toggleGroupInfo, selectChat, setCurrentView } = useUIStore();
+  const { selectedChatId, selectedTopicId, toggleSearch, toggleGroupInfo, selectChat, selectTopic } = useUIStore();
   const { dialogs } = useChatsStore();
   const workspace = useCorporateStore((s) => s.workspace);
   const isManagedChat = useCorporateStore((s) => s.isManagedChat);
+  const topicsByChat = useTopicsStore((s) => s.topicsByChat);
   const { client } = useTelegramClient();
   const dialog = dialogs.find((d) => d.id === selectedChatId);
   const [photoUrl, setPhotoUrl] = useState<string | undefined>();
   const showMonitoring = workspace === "work" && selectedChatId && isManagedChat(selectedChatId);
+
+  // Find the current topic if viewing a forum topic
+  const currentTopic = selectedChatId && selectedTopicId
+    ? topicsByChat[selectedChatId]?.find((t) => t.id === selectedTopicId)
+    : null;
 
   // Load avatar photo for header
   useEffect(() => {
@@ -104,30 +111,69 @@ export function ChatHeader() {
     statusText = formatParticipants(dialog.participantsCount, dialog.type);
   }
 
+  // Back navigation: when viewing a topic, go back to topic list
+  const handleBack = () => {
+    if (selectedTopicId && selectedChatId) {
+      // Go back to forum topic list (mobile: shows TopicsList, desktop: expands inline)
+      selectTopic(selectedChatId, null);
+    } else {
+      selectChat(null);
+    }
+  };
+
+  // Header title and subtitle
+  const headerTitle = currentTopic ? currentTopic.title : dialog.title;
+  const headerSubtitle = currentTopic ? dialog.title : statusText;
+  const subtitleClass = currentTopic
+    ? "text-muted-foreground"
+    : dialog.isOnline
+      ? "text-blue-500"
+      : "text-muted-foreground";
+
   return (
     <div className="flex h-14 items-center justify-between border-b px-4">
       <div className="flex items-center gap-3">
         <Button
           variant="ghost"
           size="icon"
-          className="md:hidden"
-          onClick={() => selectChat(null)}
+          className={selectedTopicId ? "" : "md:hidden"}
+          onClick={handleBack}
         >
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <div className="relative">
-          <Avatar className="h-9 w-9">
-            {photoUrl && <AvatarImage src={photoUrl} alt={dialog.title} />}
-            <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-          </Avatar>
-          {dialog.isOnline && (
-            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-green-500" />
-          )}
-        </div>
+        {currentTopic ? (
+          /* Topic emoji icon or colored circle fallback */
+          currentTopic.iconEmojiUrl ? (
+            <img
+              src={currentTopic.iconEmojiUrl}
+              alt=""
+              className="h-9 w-9 shrink-0 object-contain"
+            />
+          ) : (
+            <div
+              className="h-9 w-9 rounded-full shrink-0 flex items-center justify-center"
+              style={{ backgroundColor: `#${currentTopic.iconColor.toString(16).padStart(6, "0")}` }}
+            >
+              {currentTopic.isGeneral && (
+                <span className="text-sm text-white font-bold">#</span>
+              )}
+            </div>
+          )
+        ) : (
+          <div className="relative">
+            <Avatar className="h-9 w-9">
+              {photoUrl && <AvatarImage src={photoUrl} alt={dialog.title} />}
+              <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+            </Avatar>
+            {dialog.isOnline && (
+              <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-green-500" />
+            )}
+          </div>
+        )}
         <div>
-          <h2 className="text-sm font-medium leading-none">{dialog.title}</h2>
-          <p className={`text-xs mt-0.5 ${dialog.isOnline ? "text-blue-500" : "text-muted-foreground"}`}>
-            {statusText}
+          <h2 className="text-sm font-medium leading-none">{headerTitle}</h2>
+          <p className={`text-xs mt-0.5 ${subtitleClass}`}>
+            {headerSubtitle}
           </p>
         </div>
       </div>
@@ -139,7 +185,7 @@ export function ChatHeader() {
         <Button variant="ghost" size="icon" onClick={toggleSearch}>
           <Search className="h-4 w-4" />
         </Button>
-        {(dialog.type === "group" || dialog.type === "channel") && (
+        {(dialog.type === "group" || dialog.type === "channel") && !selectedTopicId && (
           <Button variant="ghost" size="icon" onClick={toggleGroupInfo}>
             <Users className="h-4 w-4" />
           </Button>
@@ -151,7 +197,7 @@ export function ChatHeader() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setCurrentView("settings")}>
+            <DropdownMenuItem>
               <Settings className="h-4 w-4 mr-2" />
               Настройки
             </DropdownMenuItem>

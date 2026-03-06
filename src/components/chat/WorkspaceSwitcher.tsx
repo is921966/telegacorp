@@ -45,6 +45,7 @@ function WorkspaceButton({
   onSelect: (ws: Workspace) => void;
 }) {
   const isActive = current === value;
+  const isWork = value === "work";
 
   return (
     <button
@@ -52,9 +53,11 @@ function WorkspaceButton({
       className={`
         flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all
         ${
-          isActive
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
+          isActive && isWork
+            ? "bg-teal-500/15 text-teal-600 dark:text-teal-400 shadow-sm"
+            : isActive
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
         }
       `}
     >

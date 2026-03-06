@@ -69,6 +69,28 @@ export interface TelegramDialog {
   apiOrder: number;
 }
 
+export interface TelegramForumTopic {
+  id: number;
+  title: string;
+  iconColor: number;
+  iconEmojiId?: string;
+  /** Cached data URL for the custom emoji icon (downloaded from Telegram) */
+  iconEmojiUrl?: string;
+  unreadCount: number;
+  unreadMentionsCount: number;
+  lastMessage?: {
+    text: string;
+    date: Date;
+    senderId?: string;
+    senderName?: string;
+    isOutgoing: boolean;
+  };
+  isPinned: boolean;
+  isClosed: boolean;
+  isHidden: boolean;
+  isGeneral: boolean;
+}
+
 export interface TextEntity {
   offset: number;
   length: number;
@@ -123,6 +145,8 @@ export interface TelegramMessage {
   agentId?: string;
   agentName?: string;
   agentStatus?: string;
+  /** Forum topic ID this message belongs to (for forum supergroups) */
+  forumTopicId?: number;
 }
 
 export interface TelegramMedia {

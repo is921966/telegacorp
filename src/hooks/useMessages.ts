@@ -17,7 +17,7 @@ const loadedWithAround = new Set<string>();
 
 export type LoadMode = "bottom" | "around" | "older" | "newer";
 
-export function useMessages(chatId: string | null) {
+export function useMessages(chatId: string | null, topicId?: number | null) {
   const { client, isConnected } = useTelegramClient();
   const {
     messagesByChat,
@@ -35,8 +35,11 @@ export function useMessages(chatId: string | null) {
     setHasNewer,
   } = useMessagesStore();
 
-  const messages = chatId ? messagesByChat[chatId] || [] : [];
-  const chatHasNewer = hasNewer[chatId || ""] ?? false;
+  // Composite store key: chatId or chatId:topic:topicId for forum topics
+  const storeKey = chatId && topicId ? `${chatId}:topic:${topicId}` : chatId;
+
+  const messages = storeKey ? messagesByChat[storeKey] || [] : [];
+  const chatHasNewer = hasNewer[storeKey || ""] ?? false;
 
   // Prevent concurrent initial loads for the same chat
   const loadingChatRef = useRef<string | null>(null);
@@ -50,61 +53,88 @@ export function useMessages(chatId: string | null) {
    */
   const loadMessages = useCallback(
     async (mode: LoadMode = "bottom", anchorId?: number) => {
-      if (!client || !isConnected || !chatId) return;
+      if (!client || !isConnected || !chatId || !storeKey) return;
 
       // Guard against concurrent initial loads
-      if ((mode === "bottom" || mode === "around") && loadingChatRef.current === chatId) return;
-      if (mode === "bottom" || mode === "around") loadingChatRef.current = chatId;
+      if ((mode === "bottom" || mode === "around") && loadingChatRef.current === storeKey) return;
+      if (mode === "bottom" || mode === "around") loadingChatRef.current = storeKey;
 
       setLoading(true);
       try {
-        if (mode === "bottom") {
-          const { getMessages } = await import("@/lib/telegram/messages");
-          const result = await getMessages(client, chatId, 50);
-          setMessages(chatId, result);
-          setHasMore(chatId, result.length >= 50);
-          setHasNewer(chatId, false);
-          loadedThisSession.add(chatId);
-          loadedWithAround.delete(chatId);
-        } else if (mode === "around" && anchorId) {
-          // Clear stale cached messages so the initial scroll-to-divider in
-          // MessageList fires AFTER fresh data arrives (not on stale cache).
-          setMessages(chatId, []);
-          setLoading(true);
-          const { getMessagesAround } = await import("@/lib/telegram/messages");
-          const result = await getMessagesAround(client, chatId, anchorId, 50);
-          setMessages(chatId, result);
-          setHasMore(chatId, result.length >= 25); // loaded around center
-          setHasNewer(chatId, true); // there may be newer messages
-          loadedThisSession.add(chatId);
-          loadedWithAround.add(chatId);
-        } else if (mode === "older" && anchorId) {
-          const { getMessages } = await import("@/lib/telegram/messages");
-          const result = await getMessages(client, chatId, 50, anchorId);
-          prependMessages(chatId, result);
-          setHasMore(chatId, result.length >= 50);
-        } else if (mode === "newer" && anchorId) {
-          const { getNewerMessages } = await import("@/lib/telegram/messages");
-          const result = await getNewerMessages(client, chatId, anchorId, 50);
-          appendMessages(chatId, result);
-          setHasNewer(chatId, result.length >= 50);
+        if (topicId) {
+          // Forum topic messages: use GetReplies API
+          const { getTopicMessages } = await import("@/lib/telegram/topics");
+
+          if (mode === "bottom") {
+            const result = await getTopicMessages(client, chatId, topicId, 50);
+            setMessages(storeKey, result);
+            setHasMore(storeKey, result.length >= 50);
+            setHasNewer(storeKey, false);
+            loadedThisSession.add(storeKey);
+            loadedWithAround.delete(storeKey);
+          } else if (mode === "older" && anchorId) {
+            const result = await getTopicMessages(client, chatId, topicId, 50, anchorId);
+            prependMessages(storeKey, result);
+            setHasMore(storeKey, result.length >= 50);
+          } else if (mode === "around") {
+            // Topics don't support "around" — fall back to bottom load
+            const result = await getTopicMessages(client, chatId, topicId, 50);
+            setMessages(storeKey, result);
+            setHasMore(storeKey, result.length >= 50);
+            setHasNewer(storeKey, false);
+            loadedThisSession.add(storeKey);
+          }
+        } else {
+          // Regular chat messages
+          if (mode === "bottom") {
+            const { getMessages } = await import("@/lib/telegram/messages");
+            const result = await getMessages(client, chatId, 50);
+            setMessages(storeKey, result);
+            setHasMore(storeKey, result.length >= 50);
+            setHasNewer(storeKey, false);
+            loadedThisSession.add(storeKey);
+            loadedWithAround.delete(storeKey);
+          } else if (mode === "around" && anchorId) {
+            setMessages(storeKey, []);
+            setLoading(true);
+            const { getMessagesAround } = await import("@/lib/telegram/messages");
+            const result = await getMessagesAround(client, chatId, anchorId, 50);
+            setMessages(storeKey, result);
+            setHasMore(storeKey, result.length >= 25);
+            setHasNewer(storeKey, true);
+            loadedThisSession.add(storeKey);
+            loadedWithAround.add(storeKey);
+          } else if (mode === "older" && anchorId) {
+            const { getMessages } = await import("@/lib/telegram/messages");
+            const result = await getMessages(client, chatId, 50, anchorId);
+            prependMessages(storeKey, result);
+            setHasMore(storeKey, result.length >= 50);
+          } else if (mode === "newer" && anchorId) {
+            const { getNewerMessages } = await import("@/lib/telegram/messages");
+            const result = await getNewerMessages(client, chatId, anchorId, 50);
+            appendMessages(storeKey, result);
+            setHasNewer(storeKey, result.length >= 50);
+          }
         }
       } catch (err) {
-        console.error("Failed to load messages for chat", chatId, err);
+        console.error("Failed to load messages for", storeKey, err);
       } finally {
         setLoading(false);
         if (mode === "bottom" || mode === "around") loadingChatRef.current = null;
       }
     },
-    [client, isConnected, chatId, setMessages, prependMessages, appendMessages, setLoading, setHasMore, setHasNewer]
+    [client, isConnected, chatId, topicId, storeKey, setMessages, prependMessages, appendMessages, setLoading, setHasMore, setHasNewer]
   );
 
   const send = useCallback(
     async (text: string, replyToId?: number) => {
-      if (!client || !chatId) return;
+      if (!client || !chatId || !storeKey) return;
 
       const { sendMessage } = await import("@/lib/telegram/messages");
-      const result = await sendMessage(client, chatId, text, replyToId);
+      // For forum topics: if no explicit replyToId, reply to topicId
+      // to route the message to the correct topic thread
+      const effectiveReplyTo = replyToId || (topicId ?? undefined);
+      const result = await sendMessage(client, chatId, text, effectiveReplyTo);
 
       // Optimistically add the sent message to the store
       if (result && "id" in result) {
@@ -121,9 +151,9 @@ export function useMessages(chatId: string | null) {
               : Date.now()
           ),
           isOutgoing: true,
-          replyToId,
+          replyToId: effectiveReplyTo,
         };
-        addMessage(chatId, msg);
+        addMessage(storeKey, msg);
 
         // Bump dialog to top with our sent message
         useChatsStore.getState().bumpDialog(
@@ -139,38 +169,38 @@ export function useMessages(chatId: string | null) {
         );
       }
     },
-    [client, chatId, addMessage]
+    [client, chatId, topicId, storeKey, addMessage]
   );
 
   const edit = useCallback(
     async (messageId: number, text: string) => {
-      if (!client || !chatId) return;
+      if (!client || !chatId || !storeKey) return;
 
       const { editMessage } = await import("@/lib/telegram/messages");
       await editMessage(client, chatId, messageId, text);
-      updateMessage(chatId, messageId, { text, isEdited: true });
+      updateMessage(storeKey, messageId, { text, isEdited: true });
     },
-    [client, chatId, updateMessage]
+    [client, chatId, storeKey, updateMessage]
   );
 
   const remove = useCallback(
     async (messageIds: number[]) => {
-      if (!client || !chatId) return;
+      if (!client || !chatId || !storeKey) return;
 
       const { deleteMessages } = await import("@/lib/telegram/messages");
       await deleteMessages(client, chatId, messageIds);
-      removeMessages(chatId, messageIds);
+      removeMessages(storeKey, messageIds);
     },
-    [client, chatId, removeMessages]
+    [client, chatId, storeKey, removeMessages]
   );
 
   /** Load older messages (scroll up pagination) */
   const loadMore = useCallback(() => {
-    if (messages.length > 0 && hasMore[chatId || ""]) {
+    if (messages.length > 0 && hasMore[storeKey || ""]) {
       const oldestId = Math.min(...messages.map((m) => m.id));
       loadMessages("older", oldestId);
     }
-  }, [messages, hasMore, chatId, loadMessages]);
+  }, [messages, hasMore, storeKey, loadMessages]);
 
   /** Load newer messages (scroll down pagination) */
   const loadNewer = useCallback(() => {
@@ -221,74 +251,82 @@ export function useMessages(chatId: string | null) {
   // (due to empty entity cache) get retried automatically.
   const dialogsCount = useChatsStore((s) => s.dialogs.length);
 
-  // Targeted selector: only re-renders when THIS chat's loaded state changes
+  // Targeted selector: only re-renders when THIS chat/topic's loaded state changes
   // (avoids re-firing initial load when messages arrive for OTHER chats)
   const hasCachedMessages = useMessagesStore(
-    (s) => chatId ? (s.messagesByChat[chatId]?.length ?? 0) > 0 : false
+    (s) => storeKey ? (s.messagesByChat[storeKey]?.length ?? 0) > 0 : false
   );
 
   // Track the dialog's lastMessage timestamp for the current chat.
   // When periodic dialog sync updates this to a newer value than our
   // latest stored message, we know real-time events were missed.
+  // (Not used for topic mode — topics don't participate in dialog sync)
   const dialogLastMsgTs = useChatsStore((s) => {
-    if (!chatId) return 0;
+    if (!chatId || topicId) return 0;
     const dialog = s.dialogs.find((d) => d.id === chatId);
     if (!dialog?.lastMessage?.date) return 0;
     const d = dialog.lastMessage.date;
     return d instanceof Date ? d.getTime() : new Date(d).getTime();
   });
 
-  // Track the latest stored message timestamp for the current chat.
+  // Track the latest stored message timestamp for the current chat/topic.
   // Uses a targeted selector so we only re-render when this value changes.
   const latestStoredMsgTs = useMessagesStore((s) => {
-    if (!chatId) return 0;
-    const stored = s.messagesByChat[chatId];
+    if (!storeKey) return 0;
+    const stored = s.messagesByChat[storeKey];
     if (!stored || stored.length === 0) return 0;
     const d = stored[stored.length - 1].date;
     return d instanceof Date ? d.getTime() : new Date(d).getTime();
   });
 
-  // Load messages when chat changes, client connects, or dialogs load.
+  // Load messages when chat/topic changes, client connects, or dialogs load.
   // Smart initial load: if chat has unread messages, load around the first
   // unread message; otherwise load from bottom as usual.
+  // For topics: always load from bottom (no "around" support).
   useEffect(() => {
-    if (!chatId || !isConnected) return;
+    if (!chatId || !storeKey || !isConnected) return;
 
-    const loadedBefore = loadedThisSession.has(chatId);
+    const loadedBefore = loadedThisSession.has(storeKey);
 
     // Load if: never loaded this session, OR no cached messages at all
     if (!loadedBefore || !hasCachedMessages) {
-      const dialog = useChatsStore.getState().dialogs.find((d) => d.id === chatId);
-
-      if (dialog && dialog.unreadCount > 0 && dialog.readInboxMaxId) {
-        loadMessages("around", dialog.readInboxMaxId + 1);
-      } else {
+      if (topicId) {
+        // Forum topic: always load from bottom
         loadMessages("bottom");
+      } else {
+        const dialog = useChatsStore.getState().dialogs.find((d) => d.id === chatId);
+
+        if (dialog && dialog.unreadCount > 0 && dialog.readInboxMaxId) {
+          loadMessages("around", dialog.readInboxMaxId + 1);
+        } else {
+          loadMessages("bottom");
+        }
       }
     }
-  }, [chatId, isConnected, loadMessages, hasCachedMessages, dialogsCount]);
+  }, [chatId, topicId, storeKey, isConnected, loadMessages, hasCachedMessages, dialogsCount]);
 
   // Stale message detection: when the dialog store reports a newer
   // lastMessage than our latest stored message, GramJS real-time events
   // were missed (e.g. _updateLoop timeout). Re-fetch to catch up.
+  // Disabled for topic mode — topics use their own update mechanism.
   useEffect(() => {
-    if (!chatId || !isConnected) return;
-    if (!loadedThisSession.has(chatId)) return; // initial load handles this
+    if (!chatId || !storeKey || !isConnected || topicId) return;
+    if (!loadedThisSession.has(storeKey)) return; // initial load handles this
     // Skip when loaded with "around" — messages are intentionally from the
     // middle of history, so the latest stored message is expected to be old.
-    if (loadedWithAround.has(chatId)) return;
+    if (loadedWithAround.has(storeKey)) return;
     if (latestStoredMsgTs <= 0 || dialogLastMsgTs <= 0) return;
 
     // Dialog has a message >2s newer than our latest — we're missing messages
     if (dialogLastMsgTs - latestStoredMsgTs > 2_000) {
       loadMessages("bottom");
     }
-  }, [chatId, isConnected, dialogLastMsgTs, latestStoredMsgTs, loadMessages]);
+  }, [chatId, topicId, storeKey, isConnected, dialogLastMsgTs, latestStoredMsgTs, loadMessages]);
 
   return {
     messages,
     isLoading,
-    hasMore: hasMore[chatId || ""] ?? true,
+    hasMore: hasMore[storeKey || ""] ?? true,
     hasNewer: chatHasNewer,
     loadMessages,
     loadMore,

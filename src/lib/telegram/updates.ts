@@ -91,6 +91,9 @@ function dispatchMessage(msg: Api.Message, handler: MessageHandler): void {
     }
   }
 
+  // Extract forum topic ID from reply header (for forum supergroups)
+  const forumTopicId = msg.replyTo?.replyToTopId ?? undefined;
+
   handler({
     id: msg.id,
     chatId,
@@ -100,6 +103,7 @@ function dispatchMessage(msg: Api.Message, handler: MessageHandler): void {
     date: new Date((msg.date || 0) * 1000),
     isOutgoing: msg.out || false,
     replyToId: msg.replyTo?.replyToMsgId,
+    forumTopicId,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     media: mediaType ? ({ type: mediaType, fileName: mediaFileName } as any) : undefined,
   });
