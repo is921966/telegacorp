@@ -345,7 +345,13 @@ export async function startQrAuth(
     { apiId, apiHash },
     {
       qrCode: async (qrCode: { token: Buffer; expires: number }) => {
-        const tokenBase64 = qrCode.token.toString("base64url");
+        // Convert to base64url: base64 with +→-, /→_, no trailing =
+        // (browser Buffer polyfill doesn't support "base64url" encoding)
+        const tokenBase64 = qrCode.token
+          .toString("base64")
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
         const url = `tg://login?token=${tokenBase64}`;
         console.log("[TG Auth] QR token generated, expires:", new Date(qrCode.expires * 1000).toISOString());
         console.log("[TG Auth] QR URL:", url);
