@@ -362,9 +362,38 @@ export async function startQrAuth(
         return callbacks.onPassword(hint);
       },
       onError: async (err: Error) => {
-        console.error("[TG Auth] QR auth error:", err.message);
+        const rpcErr = err as { errorMessage?: string };
+        const errorMsg = rpcErr.errorMessage || err.message || "";
+        console.error("[TG Auth] QR auth error:", errorMsg, err);
+
+        // Silent retryable errors — GramJS handles internally (token refresh, etc.)
+        const silentRetryable = [
+          "AUTH_TOKEN_EXPIRED",
+          "AUTH_TOKEN_INVALID",
+          "AUTH_TOKEN_ALREADY_ACCEPTED",
+          "TIMEOUT",
+          "CONNECTION_NOT_INITED",
+          "Timeout",
+        ];
+        if (silentRetryable.some((e) => errorMsg.includes(e) || err.message?.includes(e))) {
+          console.log("[TG Auth] Retryable QR error (silent), continuing...", errorMsg);
+          return false;
+        }
+
+        // Password errors — show to user BUT let GramJS retry (password callback will be called again)
+        const passwordRetryable = [
+          "PASSWORD_HASH_INVALID",
+          "SRP_ID_INVALID",
+        ];
+        if (passwordRetryable.some((e) => errorMsg.includes(e) || err.message?.includes(e))) {
+          console.log("[TG Auth] Password error, allowing retry...", errorMsg);
+          callbacks.onError(new Error("Неверный пароль. Попробуйте ещё раз."));
+          return false;
+        }
+
+        // Fatal errors — show to user and stop auth
+        console.error("[TG Auth] Fatal QR error, stopping auth:", errorMsg);
         callbacks.onError(err);
-        // Return true to stop auth on error
         return true;
       },
     }

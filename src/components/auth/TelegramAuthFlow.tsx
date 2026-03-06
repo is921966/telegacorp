@@ -128,10 +128,17 @@ export function TelegramAuthFlow() {
         onError: (err: Error) => {
           console.error("[TG Auth] QR auth error:", err.message);
           setQrLoading(false);
-          setTelegramAuthState({
-            step: "qr",
-            error: err.message || "Ошибка авторизации",
-          });
+          // Show error on the current step (don't force back to QR if we're on password step)
+          const currentStep = useAuthStore.getState().telegramAuthState.step;
+          if (currentStep === "password") {
+            // Password error — keep on password screen, just show the error
+            setTelegramAuthState({ error: err.message || "Ошибка авторизации" });
+          } else {
+            setTelegramAuthState({
+              step: "qr",
+              error: err.message || "Ошибка авторизации",
+            });
+          }
         },
       });
 
@@ -140,10 +147,21 @@ export function TelegramAuthFlow() {
     } catch (err) {
       console.error("[TG Auth] QR auth failed:", err);
       setQrLoading(false);
-      setTelegramAuthState({
-        step: "qr",
-        error: err instanceof Error ? err.message : "Ошибка авторизации",
-      });
+      const errMsg = err instanceof Error ? err.message : "Ошибка авторизации";
+      // Don't show "AUTH_USER_CANCEL" to user — it's an internal GramJS signal
+      if (errMsg === "AUTH_USER_CANCEL") {
+        console.log("[TG Auth] QR auth cancelled by user/error handler");
+        return;
+      }
+      const currentStep = useAuthStore.getState().telegramAuthState.step;
+      if (currentStep === "password") {
+        setTelegramAuthState({ error: errMsg });
+      } else {
+        setTelegramAuthState({
+          step: "qr",
+          error: errMsg,
+        });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connect, supabaseUser]);

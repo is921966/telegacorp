@@ -34,29 +34,29 @@ export function PasswordInput({ hint, onSubmit, error }: PasswordInputProps) {
             <path d="m9 12 2 2 4-4"/>
           </svg>
         </div>
-        <h2 className="text-xl font-semibold">Two-Factor Auth</h2>
+        <h2 className="text-xl font-semibold">Двухфакторная аутентификация</h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Your account has 2FA enabled. Enter your password.
+          У вашего аккаунта включена 2FA. Введите облачный пароль.
         </p>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="tg-password">Password</Label>
+        <Label htmlFor="tg-password">Облачный пароль</Label>
         <Input
           id="tg-password"
           type="password"
-          placeholder="Enter your 2FA password"
+          placeholder="Введите пароль"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
           autoFocus
         />
         {hint && (
-          <p className="text-xs text-muted-foreground">Hint: {hint}</p>
+          <p className="text-xs text-muted-foreground">Подсказка: {hint}</p>
         )}
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button type="submit" className="w-full" disabled={isLoading || !password}>
-        {isLoading ? "Checking..." : "Submit"}
+        {isLoading ? "Проверка..." : "Подтвердить"}
       </Button>
     </form>
   );
