@@ -4,14 +4,20 @@
  * Tests auth.SendCode directly via GramJS without browser/React.
  *
  * Usage:
+ *   # Production DC (real phone number):
  *   node scripts/test-telegram-auth.mjs +79671992211
  *
+ *   # Test DC (test phone number, code is always 22222 for DC2):
+ *   node scripts/test-telegram-auth.mjs --test 9996621234
+ *
+ * Test phone format: 99966XYYYY where X=DC number, YYYY=any digits
+ * Test login code:   XXXXX (DC number repeated 5 times, e.g., 22222 for DC2)
+ *
  * This script:
- * 1. Connects to Telegram via GramJS (TCP, not WebSocket)
- * 2. Cancels any previous auth attempt
- * 3. Sends auth.SendCode with full diagnostic logging
- * 4. Logs every field of the response
- * 5. Optionally waits for code input and signs in
+ * 1. Connects to Telegram via GramJS (TCP)
+ * 2. Sends auth.SendCode with full diagnostic logging
+ * 3. Logs every field of the TL response
+ * 4. Optionally waits for code input and signs in
  */
 
 import { TelegramClient, Api } from "telegram";
@@ -24,21 +30,47 @@ import { createInterface } from "readline";
 
 const API_ID = 33889652;
 const API_HASH = "930501da71ffbf3fc54fdbb0a81a5c64";
-const PHONE = process.argv[2];
+
+// Parse args
+const args = process.argv.slice(2);
+const USE_TEST_DC = args.includes("--test");
+const PHONE = args.find((a) => !a.startsWith("--"));
 
 if (!PHONE) {
-  process.stderr.write("Usage: node scripts/test-telegram-auth.mjs +79671992211\n");
+  process.stderr.write(
+    [
+      "Usage:",
+      "  node scripts/test-telegram-auth.mjs +79671992211        # Production DC",
+      "  node scripts/test-telegram-auth.mjs --test 9996621234   # Test DC",
+      "",
+      "Test phone format: 99966XYYYY  (X = DC number 1-3, YYYY = any 4 digits)",
+      "Test login code:   XXXXX       (DC number repeated 5 times)",
+      "  DC1: 99966XYYYY → code 11111",
+      "  DC2: 99966XYYYY → code 22222",
+      "  DC3: 99966XYYYY → code 33333",
+      "",
+    ].join("\n") + "\n"
+  );
   process.exit(1);
 }
+
+// Detect test DC from phone number
+const testDcId = USE_TEST_DC && PHONE.match(/^99966(\d)/) ? parseInt(PHONE[5], 10) : null;
+const testCode = testDcId ? String(testDcId).repeat(5) : null;
 
 console.log("═══════════════════════════════════════════════════════");
 console.log("  TELEGRAM AUTH DIAGNOSTIC TOOL");
 console.log("═══════════════════════════════════════════════════════");
-console.log(`Phone:     ${PHONE}`);
-console.log(`API ID:    ${API_ID}`);
-console.log(`API Hash:  ${API_HASH.slice(0, 8)}...`);
-console.log(`Time:      ${new Date().toISOString()}`);
-console.log(`Transport: TCP (not WebSocket)`);
+console.log(`Phone:       ${PHONE}`);
+console.log(`API ID:      ${API_ID}`);
+console.log(`API Hash:    ${API_HASH.slice(0, 8)}...`);
+console.log(`Mode:        ${USE_TEST_DC ? "🧪 TEST DC" : "🔴 PRODUCTION DC"}`);
+if (testDcId) {
+  console.log(`Test DC:     ${testDcId}`);
+  console.log(`Test code:   ${testCode}`);
+}
+console.log(`Time:        ${new Date().toISOString()}`);
+console.log(`Transport:   TCP`);
 console.log("═══════════════════════════════════════════════════════\n");
 
 // ────────────────────────────────────────────────────────────────
@@ -86,12 +118,26 @@ function ask(question) {
 async function main() {
   // Step 0: Create client
   console.log("[1/5] Creating GramJS client...");
-  const client = new TelegramClient(new StringSession(""), API_ID, API_HASH, {
+  const clientOpts = {
     connectionRetries: 5,
     deviceModel: "TG Corp Diagnostic",
     systemVersion: "Node.js",
     appVersion: "1.0-diag",
-  });
+  };
+
+  // For test DCs, we need to set testServers flag
+  // GramJS doesn't have a simple testServers flag for TCP,
+  // but we can manually set the DC after creating the session
+  const session = new StringSession("");
+
+  if (USE_TEST_DC && testDcId) {
+    // Set session to test DC IP
+    // Test DCs use the same IP 149.154.167.40 on port 80
+    session.setDC(testDcId, "149.154.167.40", 80);
+    console.log(`  Set session DC to test DC ${testDcId} (149.154.167.40:80)`);
+  }
+
+  const client = new TelegramClient(session, API_ID, API_HASH, clientOpts);
 
   // Step 1: Connect
   console.log("[2/5] Connecting to Telegram...");
@@ -102,12 +148,25 @@ async function main() {
     console.log(`  Server: ${client.session.serverAddress}`);
   } catch (err) {
     console.error("  ❌ Connection failed:", err.message);
+    if (USE_TEST_DC) {
+      console.error("  💡 Test DC connection failed. Try without --test flag first.");
+    }
     process.exit(1);
   }
 
-  // Step 2: Try to cancel any previous auth
-  console.log("\n[3/5] Checking for stale auth sessions...");
-  // We don't have a previous hash, so we'll skip cancel and go straight to sendCode
+  // Step 2: Check for stale auth
+  console.log("\n[3/5] Checking auth state...");
+  try {
+    const authorized = await client.checkAuthorization();
+    console.log(`  Already authorized: ${authorized}`);
+    if (authorized) {
+      const me = await client.getMe();
+      console.log(`  Logged in as: ${me.firstName} (@${me.username || "N/A"})`);
+      console.log("  ⚠️  Already logged in — sendCode may behave differently");
+    }
+  } catch {
+    console.log("  Not authorized (expected for fresh session)");
+  }
 
   // Step 3: Send code via direct TL API
   console.log("\n[4/5] Invoking auth.SendCode...");
@@ -141,9 +200,10 @@ async function main() {
 
     if (rpcErr.errorMessage?.startsWith("PHONE_MIGRATE_")) {
       const dc = parseInt(rpcErr.errorMessage.replace("PHONE_MIGRATE_", ""), 10);
-      console.log(`\n  📡 Phone requires DC ${dc}. Migrating...`);
+      console.log(`\n  📡 Phone requires DC ${dc}. GramJS auto-migrating...`);
 
-      // Use client.sendCode which handles migration automatically
+      // GramJS handles PHONE_MIGRATE automatically, but just in case
+      // it didn't trigger the auto-retry, fall back to wrapper
       try {
         sentCode = await client.sendCode({ apiId: API_ID, apiHash: API_HASH }, PHONE);
         console.log("  ✅ Migrated and code sent via client.sendCode()");
@@ -155,9 +215,7 @@ async function main() {
         process.exit(1);
       }
     } else if (rpcErr.errorMessage === "AUTH_RESTART") {
-      console.log("\n  🔄 AUTH_RESTART — Telegram wants us to restart auth");
-      console.log("  This usually means the previous session is stale.");
-      console.log("  Retrying with fresh sendCode...");
+      console.log("\n  🔄 AUTH_RESTART — retrying...");
       try {
         sentCode = await client.invoke(
           new Api.auth.SendCode({
@@ -172,6 +230,13 @@ async function main() {
         await client.disconnect();
         process.exit(1);
       }
+    } else if (rpcErr.errorMessage === "PHONE_NUMBER_FLOOD") {
+      console.error("\n  🚫 PHONE_NUMBER_FLOOD — Too many login attempts!");
+      console.error("  You've exceeded the daily login limit (~5 per day).");
+      console.error("  Wait until tomorrow or use test DCs:");
+      console.error("    node scripts/test-telegram-auth.mjs --test 9996621234");
+      await client.disconnect();
+      process.exit(1);
     } else {
       await client.disconnect();
       process.exit(1);
@@ -217,12 +282,18 @@ async function main() {
   if (typeKey === "SentCodeTypeApp") {
     console.log("\n  ℹ️  Code sent to Telegram app. User MUST have an active");
     console.log("     Telegram session on another device to receive it.");
-    console.log("     If they don't see it: code may be silently rate-limited.");
+    console.log("     If code doesn't arrive: Telegram may be silently rate-limiting.");
+    console.log("     Daily limit: ~5 sendCode calls per phone number.");
   }
 
   if (nextTypeKey) {
     const nextLabel = deliveryMap[nextTypeKey] || nextType.className;
     console.log(`\n  ⏭  After ${timeout}s timeout, resend will use: ${nextLabel}`);
+  } else {
+    console.log("\n  ⚠️  nextType is NULL — no fallback delivery method!");
+    console.log("     auth.ResendCode will fail with SEND_CODE_UNAVAILABLE.");
+    console.log("     This is normal for 3rd-party API apps — SMS/call fallback");
+    console.log("     is often restricted to official Telegram apps.");
   }
 
   // Check for isCodeViaApp (simplified response from client.sendCode)
@@ -233,7 +304,12 @@ async function main() {
   console.log("═══════════════════════════════════════════════════════\n");
 
   // Step 5: Optionally try signing in
-  const proceed = await ask("Enter verification code (or 'q' to quit, 'r' to resend): ");
+  let codePrompt = "Enter verification code (or 'q' to quit, 'r' to resend): ";
+  if (testCode) {
+    codePrompt = `Enter verification code [test code: ${testCode}] (or 'q' to quit, 'r' to resend): `;
+  }
+
+  const proceed = await ask(codePrompt);
 
   if (proceed === "q") {
     console.log("Disconnecting...");
@@ -254,19 +330,24 @@ async function main() {
       inspectTL(resendResult);
     } catch (err) {
       console.error("Resend failed:", err.message, err.errorMessage || "");
+      if (err.errorMessage === "SEND_CODE_UNAVAILABLE") {
+        console.error("\n  This is expected when nextType is null.");
+        console.error("  No alternative delivery method is available.");
+      }
     }
     await client.disconnect();
     process.exit(0);
   }
 
   // Try signing in
-  console.log(`\nSigning in with code: ${proceed}`);
+  const code = proceed || testCode;
+  console.log(`\nSigning in with code: ${code}`);
   try {
     const signInResult = await client.invoke(
       new Api.auth.SignIn({
         phoneNumber: PHONE,
         phoneCodeHash: hash,
-        phoneCode: proceed,
+        phoneCode: code,
       })
     );
     console.log("✅ Sign in successful!");
@@ -287,8 +368,29 @@ async function main() {
       inspectTL(checkResult);
     } else if (rpcErr.errorMessage === "PHONE_CODE_INVALID") {
       console.error("❌ Invalid code");
+      if (USE_TEST_DC && testCode) {
+        console.error(`   Expected test code: ${testCode}`);
+        console.error(`   Try also: ${String(testDcId).repeat(6)} (6 digits)`);
+      }
     } else if (rpcErr.errorMessage === "PHONE_CODE_EXPIRED") {
-      console.error("❌ Code expired");
+      console.error("❌ Code expired — re-run the script to request a new one");
+    } else if (rpcErr.errorMessage === "PHONE_NUMBER_UNOCCUPIED") {
+      console.log("📋 Phone not registered — this is a new test account");
+      console.log("   Calling auth.SignUp to register...");
+      try {
+        const signUpResult = await client.invoke(
+          new Api.auth.SignUp({
+            phoneNumber: PHONE,
+            phoneCodeHash: hash,
+            firstName: "Test",
+            lastName: "User",
+          })
+        );
+        console.log("✅ Sign up successful!");
+        inspectTL(signUpResult);
+      } catch (signUpErr) {
+        console.error("❌ Sign up failed:", signUpErr.message);
+      }
     } else {
       console.error("❌ Sign in failed:", err.message, rpcErr.errorMessage || "");
     }
@@ -298,6 +400,7 @@ async function main() {
   try {
     const me = await client.getMe();
     console.log("\n✅ Logged in as:", me.firstName, me.lastName || "", `(@${me.username || "N/A"})`);
+    console.log("   Session string:", client.session.save());
   } catch {
     // Not logged in
   }
