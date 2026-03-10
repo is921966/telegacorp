@@ -37,12 +37,12 @@ const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
 export function getAdminContext(
   request: NextRequest
 ): AdminContext | null {
-  const userId = request.headers.get("x-admin-user-id");
+  const telegramId = request.headers.get("x-admin-telegram-id");
   const role = request.headers.get("x-admin-role") as AdminRole | null;
 
-  if (!userId || !role) return null;
+  if (!telegramId || !role) return null;
 
-  return { userId, role };
+  return { telegramId, role };
 }
 
 // ---- Permission checks ----
@@ -77,7 +77,7 @@ export function requirePermission(
 // ---- Audit logging ----
 
 interface AuditEventParams {
-  adminUserId: string;
+  adminTelegramId: string;
   actionType: string;
   targetChatId?: string | null;
   targetUserId?: string | null;
@@ -96,7 +96,7 @@ export async function logAuditEvent(params: AuditEventParams): Promise<void> {
     const supabase = createServerSupabase();
 
     await supabase.from("admin_audit_log").insert({
-      admin_user_id: params.adminUserId,
+      admin_telegram_id: params.adminTelegramId,
       action_type: params.actionType,
       target_chat_id: params.targetChatId ?? null,
       target_user_id: params.targetUserId ?? null,

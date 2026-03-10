@@ -182,28 +182,47 @@ export interface Database {
         Relationships: [];
       };
 
+      work_companies: {
+        Row: {
+          telegram_id: string;
+          companies: Array<{ email: string; enabled: boolean }>;
+          updated_at: string;
+        };
+        Insert: {
+          telegram_id: string;
+          companies?: Array<{ email: string; enabled: boolean }>;
+          updated_at?: string;
+        };
+        Update: {
+          telegram_id?: string;
+          companies?: Array<{ email: string; enabled: boolean }>;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+
       // ---- Admin Panel tables (migration 002) ----
 
       admin_roles: {
         Row: {
           id: string;
-          user_id: string;
+          telegram_id: string;
           role: string;
-          granted_by: string | null;
+          granted_by_telegram_id: string | null;
           granted_at: string;
         };
         Insert: {
           id?: string;
-          user_id: string;
+          telegram_id: string;
           role: string;
-          granted_by?: string | null;
+          granted_by_telegram_id?: string | null;
           granted_at?: string;
         };
         Update: {
           id?: string;
-          user_id?: string;
+          telegram_id?: string;
           role?: string;
-          granted_by?: string | null;
+          granted_by_telegram_id?: string | null;
           granted_at?: string;
         };
         Relationships: [];
@@ -232,7 +251,7 @@ export interface Database {
           description: string | null;
           config: Record<string, unknown>;
           is_active: boolean;
-          created_by: string | null;
+          created_by_telegram_id: string | null;
           created_at: string;
           updated_at: string;
           version: number;
@@ -243,7 +262,7 @@ export interface Database {
           description?: string | null;
           config: Record<string, unknown>;
           is_active?: boolean;
-          created_by?: string | null;
+          created_by_telegram_id?: string | null;
           created_at?: string;
           updated_at?: string;
           version?: number;
@@ -254,7 +273,7 @@ export interface Database {
           description?: string | null;
           config?: Record<string, unknown>;
           is_active?: boolean;
-          created_by?: string | null;
+          created_by_telegram_id?: string | null;
           created_at?: string;
           updated_at?: string;
           version?: number;
@@ -296,7 +315,7 @@ export interface Database {
       admin_audit_log: {
         Row: {
           id: number;
-          admin_user_id: string | null;
+          admin_telegram_id: string | null;
           action_type: string;
           target_chat_id: string | null;
           target_user_id: string | null;
@@ -309,7 +328,7 @@ export interface Database {
         };
         Insert: {
           id?: number;
-          admin_user_id?: string | null;
+          admin_telegram_id?: string | null;
           action_type: string;
           target_chat_id?: string | null;
           target_user_id?: string | null;
@@ -322,7 +341,7 @@ export interface Database {
         };
         Update: {
           id?: number;
-          admin_user_id?: string | null;
+          admin_telegram_id?: string | null;
           action_type?: string;
           target_chat_id?: string | null;
           target_user_id?: string | null;
@@ -501,7 +520,7 @@ export interface Database {
           confidence: number | null;
           status: string;
           detected_at: string;
-          reviewed_by: string | null;
+          reviewed_by_telegram_id: string | null;
           reviewed_at: string | null;
         };
         Insert: {
@@ -515,7 +534,7 @@ export interface Database {
           confidence?: number | null;
           status?: string;
           detected_at?: string;
-          reviewed_by?: string | null;
+          reviewed_by_telegram_id?: string | null;
           reviewed_at?: string | null;
         };
         Update: {
@@ -529,7 +548,7 @@ export interface Database {
           confidence?: number | null;
           status?: string;
           detected_at?: string;
-          reviewed_by?: string | null;
+          reviewed_by_telegram_id?: string | null;
           reviewed_at?: string | null;
         };
         Relationships: [];
@@ -549,7 +568,7 @@ export interface Database {
           config: Record<string, unknown>;
           assigned_chats: number[] | null;
           created_at: string;
-          approved_by: string | null;
+          approved_by_telegram_id: string | null;
           approved_at: string | null;
           retired_at: string | null;
         };
@@ -566,7 +585,7 @@ export interface Database {
           config?: Record<string, unknown>;
           assigned_chats?: number[] | null;
           created_at?: string;
-          approved_by?: string | null;
+          approved_by_telegram_id?: string | null;
           approved_at?: string | null;
           retired_at?: string | null;
         };
@@ -583,7 +602,7 @@ export interface Database {
           config?: Record<string, unknown>;
           assigned_chats?: number[] | null;
           created_at?: string;
-          approved_by?: string | null;
+          approved_by_telegram_id?: string | null;
           approved_at?: string | null;
           retired_at?: string | null;
         };

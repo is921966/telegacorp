@@ -76,7 +76,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (error || !data) throw new Error(error?.message ?? "Update failed");
 
     await logAuditEvent({
-      adminUserId: ctx.userId,
+      adminTelegramId: ctx.telegramId,
       actionType: "update_agent",
       payload: { agentId, changes: parsed.data },
       resultStatus: "success",
@@ -109,7 +109,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     if (error) throw new Error(error.message);
 
     await logAuditEvent({
-      adminUserId: ctx.userId,
+      adminTelegramId: ctx.telegramId,
       actionType: "retire_agent",
       payload: { agentId },
       resultStatus: "success",

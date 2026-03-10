@@ -49,16 +49,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
   try {
     if (slowModeDelay !== undefined) {
-      await ChatManagementService.toggleSlowMode(chatId, slowModeDelay, ctx.userId);
+      await ChatManagementService.toggleSlowMode(chatId, slowModeDelay, ctx.telegramId);
     }
     if (noForwards !== undefined) {
-      await ChatManagementService.toggleNoForwards(chatId, noForwards, ctx.userId);
+      await ChatManagementService.toggleNoForwards(chatId, noForwards, ctx.telegramId);
     }
     if (defaultBannedRights) {
       await ChatManagementService.updateDefaultRights(
         chatId,
         defaultBannedRights,
-        ctx.userId
+        ctx.telegramId
       );
     }
 

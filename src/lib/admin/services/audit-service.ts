@@ -12,7 +12,7 @@ type ArchiveStateRow = Database["public"]["Tables"]["chat_archive_state"]["Row"]
 // ---- Interfaces ----
 
 interface AuditSearchFilters {
-  adminUserId?: string;
+  adminTelegramId?: string;
   actionType?: string;
   chatId?: string;
   from?: string;
@@ -37,8 +37,8 @@ export class AuditService {
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false });
 
-    if (filters.adminUserId) {
-      query = query.eq("admin_user_id", filters.adminUserId);
+    if (filters.adminTelegramId) {
+      query = query.eq("admin_telegram_id", filters.adminTelegramId);
     }
     if (filters.actionType) {
       query = query.eq("action_type", filters.actionType);
@@ -80,8 +80,8 @@ export class AuditService {
       .order("created_at", { ascending: false })
       .limit(10000); // Safety cap
 
-    if (filters.adminUserId) {
-      query = query.eq("admin_user_id", filters.adminUserId);
+    if (filters.adminTelegramId) {
+      query = query.eq("admin_telegram_id", filters.adminTelegramId);
     }
     if (filters.actionType) {
       query = query.eq("action_type", filters.actionType);
@@ -326,7 +326,7 @@ export class AuditService {
 function mapAuditEntry(row: AuditRow): AuditLogEntry {
   return {
     id: row.id,
-    admin_user_id: row.admin_user_id ?? "",
+    admin_telegram_id: row.admin_telegram_id ?? "",
     action_type: row.action_type,
     target_chat_id: row.target_chat_id,
     target_user_id: row.target_user_id,
@@ -342,7 +342,7 @@ function mapAuditEntry(row: AuditRow): AuditLogEntry {
 function toCsv(rows: AuditRow[]): string {
   const headers = [
     "id",
-    "admin_user_id",
+    "admin_telegram_id",
     "action_type",
     "target_chat_id",
     "target_user_id",
@@ -357,7 +357,7 @@ function toCsv(rows: AuditRow[]): string {
     lines.push(
       [
         row.id,
-        escapeCsv(row.admin_user_id),
+        escapeCsv(row.admin_telegram_id),
         escapeCsv(row.action_type),
         escapeCsv(row.target_chat_id),
         escapeCsv(row.target_user_id),

@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       name: parsed.data.name,
       description: parsed.data.description,
       config: parsed.data.config,
-      createdBy: ctx.userId,
+      createdBy: ctx.telegramId,
     });
     return NextResponse.json({ template }, { status: 201 });
   } catch (err) {

@@ -88,7 +88,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (error) throw new Error(error.message);
 
     await logAuditEvent({
-      adminUserId: ctx.userId,
+      adminTelegramId: ctx.telegramId,
       actionType: parsed.data.monitoring_enabled
         ? "enable_monitoring"
         : "disable_monitoring",

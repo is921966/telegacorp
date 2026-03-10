@@ -55,7 +55,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       .from("agent_feedback")
       .insert({
         agent_id: agentId,
-        user_id: ctx.userId,
+        telegram_id: ctx.telegramId,
         type: parsed.data.type,
         message: parsed.data.message ?? null,
         original_output: parsed.data.original_output ?? null,

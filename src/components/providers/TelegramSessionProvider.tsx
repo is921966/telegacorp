@@ -60,24 +60,26 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
           email: session.user.email ?? null,
         });
 
-        // Load work companies: prefer Supabase metadata, fallback to localStorage
-        const metaCompanies = session.user.user_metadata?.work_companies;
-        if (metaCompanies && metaCompanies.length > 0) {
-          setWorkCompanies(metaCompanies);
-        } else {
-          // Fallback: load from localStorage (works for anonymous users)
-          try {
-            const raw = localStorage.getItem("tg-work-companies");
-            if (raw) setWorkCompanies(JSON.parse(raw));
-          } catch {
-            // ignore
-          }
+        // Fast cache: load work companies from localStorage for instant render
+        try {
+          const raw = localStorage.getItem("tg-work-companies");
+          if (raw) setWorkCompanies(JSON.parse(raw));
+        } catch {
+          // ignore
         }
 
         // 2. Check if client already exists (e.g. from HomeRedirect)
         const { getExistingClient, connectClient } = await import("@/lib/telegram/client");
         if (getExistingClient()) {
           setTelegramConnected(true);
+          // Sync work companies from Supabase table if telegramUser is known
+          const telegramUser = useAuthStore.getState().telegramUser;
+          if (telegramUser?.id) {
+            import("@/lib/supabase/work-companies")
+              .then(({ loadWorkCompanies }) => loadWorkCompanies(telegramUser.id))
+              .then((companies) => { if (companies.length > 0) setWorkCompanies(companies); })
+              .catch(() => {});
+          }
           return;
         }
 
@@ -97,6 +99,31 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
         const me = await getMe(client);
         setTelegramUser(me);
         setTelegramConnected(true);
+
+        // Save telegram_id to user_metadata (for middleware admin lookup)
+        import("@/lib/supabase/auth")
+          .then(({ getSession: gs }) => gs())
+          .then(() => import("@/lib/supabase/client"))
+          .then(({ supabase }) => supabase.auth.updateUser({ data: { telegram_id: me.id } }))
+          .catch(() => {});
+
+        // Source of truth: load work companies from Supabase table by Telegram ID
+        try {
+          const { loadWorkCompanies } = await import("@/lib/supabase/work-companies");
+          const companies = await loadWorkCompanies(me.id);
+          if (companies.length > 0) {
+            setWorkCompanies(companies);
+          } else {
+            // One-time migration: localStorage → Supabase table
+            const currentCompanies = useAuthStore.getState().workCompanies;
+            if (currentCompanies.length > 0) {
+              const { saveWorkCompanies } = await import("@/lib/supabase/work-companies");
+              saveWorkCompanies(me.id, currentCompanies).catch(() => {});
+            }
+          }
+        } catch {
+          // localStorage data remains as fallback
+        }
       } catch {
         // Session expired or network error — redirect to login on protected routes
         const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p)) || pathname === "/";

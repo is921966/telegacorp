@@ -80,6 +80,28 @@ export function TelegramAuthFlow() {
     setTelegramUser(me);
     setTelegramConnected(true);
     setTelegramAuthState({ step: "done" });
+
+    // Save telegram_id to user_metadata (for middleware admin lookup)
+    import("@/lib/supabase/client")
+      .then(({ supabase }) => supabase.auth.updateUser({ data: { telegram_id: me.id } }))
+      .catch(() => {});
+
+    // Load work companies from Supabase table (or migrate localStorage data)
+    try {
+      const { loadWorkCompanies, saveWorkCompanies } = await import("@/lib/supabase/work-companies");
+      const companies = await loadWorkCompanies(me.id);
+      if (companies.length > 0) {
+        useAuthStore.getState().setWorkCompanies(companies);
+      } else {
+        const localCompanies = useAuthStore.getState().workCompanies;
+        if (localCompanies.length > 0) {
+          saveWorkCompanies(me.id, localCompanies).catch(() => {});
+        }
+      }
+    } catch {
+      // Non-critical — localStorage data stays
+    }
+
     router.push("/chat");
   };
 

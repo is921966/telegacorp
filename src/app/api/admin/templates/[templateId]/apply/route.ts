@@ -30,7 +30,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const result = await TemplateService.applyTemplate(
       templateId,
       parsed.data.chatIds,
-      ctx.userId
+      ctx.telegramId
     );
     return NextResponse.json({ templateId, ...result });
   } catch (err) {

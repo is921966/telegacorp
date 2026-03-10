@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
   const url = new URL(request.url);
   const filters = {
-    adminUserId: url.searchParams.get("adminUserId") ?? undefined,
+    adminTelegramId: url.searchParams.get("adminTelegramId") ?? undefined,
     actionType: url.searchParams.get("actionType") ?? undefined,
     chatId: url.searchParams.get("chatId") ?? undefined,
     from: url.searchParams.get("from") ?? undefined,

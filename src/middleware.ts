@@ -36,11 +36,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/", request.url));
   }
 
-  // Check admin role
+  // Resolve telegram_id from user_metadata (saved during Telegram auth)
+  const telegramId = user.user_metadata?.telegram_id as string | undefined;
+  if (!telegramId) {
+    if (isApiRoute) {
+      return NextResponse.json(
+        { error: "Forbidden: no Telegram ID linked" },
+        { status: 403 }
+      );
+    }
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+
+  // Check admin role by telegram_id
   const { data: roleData } = await supabase
     .from("admin_roles")
     .select("role")
-    .eq("user_id", user.id)
+    .eq("telegram_id", telegramId)
     .single();
 
   if (!roleData) {
@@ -56,7 +68,7 @@ export async function middleware(request: NextRequest) {
   const role = roleData.role as AdminRole;
 
   // Set admin context headers for downstream API Routes
-  response.headers.set("x-admin-user-id", user.id);
+  response.headers.set("x-admin-telegram-id", telegramId);
   response.headers.set("x-admin-role", role);
 
   return response;

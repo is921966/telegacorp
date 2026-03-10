@@ -14,10 +14,9 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = createServerSupabase();
 
-    // Query admin_roles table
     const { data: roles, error } = await supabase
       .from("admin_roles")
-      .select("id, user_id, role, granted_by, granted_at")
+      .select("id, telegram_id, role, granted_by_telegram_id, granted_at")
       .order("granted_at", { ascending: false });
 
     if (error) {
@@ -25,39 +24,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Failed to list roles" }, { status: 500 });
     }
 
-    // Enrich with user emails via Supabase Auth Admin API
-    const admins = await Promise.all(
-      (roles ?? []).map(async (row) => {
-        let email: string | null = null;
-        let grantedByEmail: string | null = null;
-
-        try {
-          const { data: userData } = await supabase.auth.admin.getUserById(row.user_id);
-          email = userData?.user?.email ?? null;
-        } catch {
-          // User may have been deleted
-        }
-
-        if (row.granted_by) {
-          try {
-            const { data: granterData } = await supabase.auth.admin.getUserById(row.granted_by);
-            grantedByEmail = granterData?.user?.email ?? null;
-          } catch {
-            // Granter may have been deleted
-          }
-        }
-
-        return {
-          id: row.id,
-          userId: row.user_id,
-          email,
-          role: row.role,
-          grantedBy: row.granted_by,
-          grantedByEmail,
-          grantedAt: row.granted_at,
-        };
-      })
-    );
+    const admins = (roles ?? []).map((row) => ({
+      id: row.id,
+      telegramId: row.telegram_id,
+      role: row.role,
+      grantedByTelegramId: row.granted_by_telegram_id,
+      grantedAt: row.granted_at,
+    }));
 
     return NextResponse.json({ admins });
   } catch (err) {
@@ -66,7 +39,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST /api/admin/roles — Assign role to user */
+/** POST /api/admin/roles — Assign role to user by Telegram ID */
 export async function POST(request: NextRequest) {
   const ctx = getAdminContext(request);
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -82,30 +55,24 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { userId, role } = parsed.data;
+  const { telegramId, role } = parsed.data;
 
   try {
     const supabase = createServerSupabase();
 
-    // Verify target user exists
-    const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
-    if (userError || !userData?.user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    // Upsert role (UNIQUE constraint on user_id)
+    // Upsert role (UNIQUE constraint on telegram_id)
     const { data: inserted, error } = await supabase
       .from("admin_roles")
       .upsert(
         {
-          user_id: userId,
+          telegram_id: telegramId,
           role,
-          granted_by: ctx.userId,
+          granted_by_telegram_id: ctx.telegramId,
           granted_at: new Date().toISOString(),
         },
-        { onConflict: "user_id" }
+        { onConflict: "telegram_id" }
       )
-      .select("id, user_id, role, granted_by, granted_at")
+      .select("id, telegram_id, role, granted_by_telegram_id, granted_at")
       .single();
 
     if (error) {
@@ -113,11 +80,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to assign role" }, { status: 500 });
     }
 
-    // Audit log
     await logAuditEvent({
-      adminUserId: ctx.userId,
+      adminTelegramId: ctx.telegramId,
       actionType: "role_assign",
-      targetUserId: userId,
+      targetUserId: telegramId,
       payload: { role },
       resultStatus: "success",
       request,
@@ -128,8 +94,7 @@ export async function POST(request: NextRequest) {
         assigned: true,
         admin: {
           id: inserted.id,
-          userId: inserted.user_id,
-          email: userData.user.email,
+          telegramId: inserted.telegram_id,
           role: inserted.role,
           grantedAt: inserted.granted_at,
         },

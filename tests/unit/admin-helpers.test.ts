@@ -48,7 +48,7 @@ describe("getAdminContext", () => {
       },
     });
     const ctx = getAdminContext(req);
-    expect(ctx).toEqual({ userId: "user-abc", role: "chat_manager" });
+    expect(ctx).toEqual({ telegramId: "user-abc", role: "chat_manager" });
   });
 });
 
@@ -108,7 +108,7 @@ describe("hasPermission", () => {
 describe("requirePermission", () => {
   it("returns null (pass) when role has permission", () => {
     const result = requirePermission(
-      { userId: "user-1", role: "super_admin" },
+      { telegramId: "user-1", role: "super_admin" },
       "chats:read"
     );
     expect(result).toBeNull();
@@ -116,7 +116,7 @@ describe("requirePermission", () => {
 
   it("returns 403 response when role lacks permission", () => {
     const result = requirePermission(
-      { userId: "user-1", role: "viewer" },
+      { telegramId: "user-1", role: "viewer" },
       "chats:write"
     );
     expect(result).toBeInstanceOf(NextResponse);
@@ -125,7 +125,7 @@ describe("requirePermission", () => {
 
   it("403 response includes required permission info", async () => {
     const result = requirePermission(
-      { userId: "user-1", role: "viewer" },
+      { telegramId: "user-1", role: "viewer" },
       "agents:manage"
     );
     const body = await result!.json();

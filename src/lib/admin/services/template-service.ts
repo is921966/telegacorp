@@ -55,7 +55,7 @@ export class TemplateService {
         name: params.name,
         description: params.description ?? null,
         config: params.config as unknown as Record<string, unknown>,
-        created_by: params.createdBy,
+        created_by_telegram_id: params.createdBy,
       })
       .select()
       .single();
@@ -65,7 +65,7 @@ export class TemplateService {
     const row = data as unknown as PolicyTemplateRow;
 
     await logAuditEvent({
-      adminUserId: params.createdBy,
+      adminTelegramId: params.createdBy,
       actionType: "create_template",
       payload: { templateId: row.id, name: params.name },
       resultStatus: "success",
@@ -85,7 +85,7 @@ export class TemplateService {
       config?: PolicyConfig;
       is_active?: boolean;
     },
-    adminUserId: string
+    adminTelegramId: string
   ): Promise<PolicyTemplate> {
     const supabase = createServerSupabase();
 
@@ -116,7 +116,7 @@ export class TemplateService {
     if (error || !data) throw new Error(`Failed to update template: ${error?.message}`);
 
     await logAuditEvent({
-      adminUserId,
+      adminTelegramId,
       actionType: "update_template",
       payload: { templateId, changes: params },
       resultStatus: "success",
@@ -130,7 +130,7 @@ export class TemplateService {
    */
   static async deactivateTemplate(
     templateId: string,
-    adminUserId: string
+    adminTelegramId: string
   ): Promise<void> {
     const supabase = createServerSupabase();
     const { error } = await supabase
@@ -141,7 +141,7 @@ export class TemplateService {
     if (error) throw new Error(`Failed to deactivate template: ${error.message}`);
 
     await logAuditEvent({
-      adminUserId,
+      adminTelegramId,
       actionType: "deactivate_template",
       payload: { templateId },
       resultStatus: "success",
@@ -155,7 +155,7 @@ export class TemplateService {
   static async applyTemplate(
     templateId: string,
     chatIds: string[],
-    adminUserId: string
+    adminTelegramId: string
   ): Promise<{ applied: string[]; failed: { chatId: string; error: string }[] }> {
     const template = await this.getTemplate(templateId);
     if (!template) throw new Error("Template not found");
@@ -171,17 +171,17 @@ export class TemplateService {
         await ChatManagementService.updateDefaultRights(
           chatId,
           config.chat_permissions,
-          adminUserId
+          adminTelegramId
         );
         await ChatManagementService.toggleSlowMode(
           chatId,
           config.slow_mode_delay,
-          adminUserId
+          adminTelegramId
         );
         await ChatManagementService.toggleNoForwards(
           chatId,
           config.has_protected_content,
-          adminUserId
+          adminTelegramId
         );
 
         // Record binding in DB
@@ -209,7 +209,7 @@ export class TemplateService {
     }
 
     await logAuditEvent({
-      adminUserId,
+      adminTelegramId,
       actionType: "apply_template",
       payload: { templateId, chatIds, applied, failed },
       resultStatus: failed.length === 0 ? "success" : "partial",
@@ -316,7 +316,7 @@ function mapTemplate(row: Record<string, unknown>): PolicyTemplate {
     description: (row.description as string) ?? null,
     config: row.config as PolicyConfig,
     is_active: row.is_active as boolean,
-    created_by: (row.created_by as string) ?? null,
+    created_by_telegram_id: (row.created_by_telegram_id as string) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     version: row.version as number,

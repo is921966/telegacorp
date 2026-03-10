@@ -49,7 +49,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const link = await ChatManagementService.createInviteLink(
       chatId,
       parsed.data,
-      ctx.userId
+      ctx.telegramId
     );
     return NextResponse.json({ chatId, link }, { status: 201 });
   } catch (err) {
@@ -74,7 +74,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   }
 
   try {
-    await ChatManagementService.revokeInviteLink(chatId, link, ctx.userId);
+    await ChatManagementService.revokeInviteLink(chatId, link, ctx.telegramId);
     return NextResponse.json({ chatId, revoked: true });
   } catch (err) {
     console.error(`[admin/chats/${chatId}/invite] revoke failed:`, err);

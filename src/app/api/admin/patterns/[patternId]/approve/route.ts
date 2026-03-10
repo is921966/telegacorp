@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       .from("automation_patterns")
       .update({
         status: newStatus,
-        reviewed_by: ctx.userId,
+        reviewed_by_telegram_id: ctx.telegramId,
         reviewed_at: new Date().toISOString(),
       })
       .eq("id", patternId);
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (error) throw new Error(error.message);
 
     await logAuditEvent({
-      adminUserId: ctx.userId,
+      adminTelegramId: ctx.telegramId,
       actionType: `${action}_pattern`,
       payload: { patternId },
       resultStatus: "success",

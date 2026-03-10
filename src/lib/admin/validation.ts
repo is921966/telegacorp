@@ -11,7 +11,7 @@ export const adminRoleEnum = z.enum([
 ]);
 
 export const assignRoleSchema = z.object({
-  userId: z.string().uuid(),
+  telegramId: z.string().min(1),
   role: adminRoleEnum,
 });
 
@@ -175,7 +175,7 @@ export const sendMessageSchema = z.object({
 // ---- Audit ----
 
 export const auditQuerySchema = z.object({
-  adminUserId: z.string().uuid().optional(),
+  adminTelegramId: z.string().optional(),
   actionType: z.string().optional(),
   chatId: z.string().optional(),
   from: z.string().datetime().optional(),

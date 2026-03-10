@@ -365,7 +365,7 @@ export class ChatManagementService {
       manageCall?: boolean;
     },
     rank?: string,
-    adminUserId?: string
+    adminTelegramId?: string
   ): Promise<void> {
     await botApiCall(
       "editAdmin",
@@ -392,9 +392,9 @@ export class ChatManagementService {
       2000
     );
 
-    if (adminUserId) {
+    if (adminTelegramId) {
       await logAuditEvent({
-        adminUserId,
+        adminTelegramId,
         actionType: "edit_admin",
         targetChatId: chatId,
         targetUserId: userId,
@@ -411,7 +411,7 @@ export class ChatManagementService {
     chatId: string,
     userId: string,
     untilDate?: number,
-    adminUserId?: string
+    adminTelegramId?: string
   ): Promise<void> {
     await botApiCall(
       "banUser",
@@ -437,9 +437,9 @@ export class ChatManagementService {
       2000
     );
 
-    if (adminUserId) {
+    if (adminTelegramId) {
       await logAuditEvent({
-        adminUserId,
+        adminTelegramId,
         actionType: "ban_user",
         targetChatId: chatId,
         targetUserId: userId,
@@ -455,7 +455,7 @@ export class ChatManagementService {
   static async unbanUser(
     chatId: string,
     userId: string,
-    adminUserId?: string
+    adminTelegramId?: string
   ): Promise<void> {
     await botApiCall(
       "unbanUser",
@@ -474,9 +474,9 @@ export class ChatManagementService {
       2000
     );
 
-    if (adminUserId) {
+    if (adminTelegramId) {
       await logAuditEvent({
-        adminUserId,
+        adminTelegramId,
         actionType: "unban_user",
         targetChatId: chatId,
         targetUserId: userId,
@@ -491,7 +491,7 @@ export class ChatManagementService {
   static async updateDefaultRights(
     chatId: string,
     rights: ChatBannedRights,
-    adminUserId?: string
+    adminTelegramId?: string
   ): Promise<void> {
     await botApiCall(
       "updateDefaultRights",
@@ -506,9 +506,9 @@ export class ChatManagementService {
       2000
     );
 
-    if (adminUserId) {
+    if (adminTelegramId) {
       await logAuditEvent({
-        adminUserId,
+        adminTelegramId,
         actionType: "update_default_rights",
         targetChatId: chatId,
         payload: { rights },
@@ -523,7 +523,7 @@ export class ChatManagementService {
   static async toggleSlowMode(
     chatId: string,
     seconds: number,
-    adminUserId?: string
+    adminTelegramId?: string
   ): Promise<void> {
     await botApiCall(
       "toggleSlowMode",
@@ -538,9 +538,9 @@ export class ChatManagementService {
       2000
     );
 
-    if (adminUserId) {
+    if (adminTelegramId) {
       await logAuditEvent({
-        adminUserId,
+        adminTelegramId,
         actionType: "toggle_slow_mode",
         targetChatId: chatId,
         payload: { seconds },
@@ -555,7 +555,7 @@ export class ChatManagementService {
   static async toggleNoForwards(
     chatId: string,
     enabled: boolean,
-    adminUserId?: string
+    adminTelegramId?: string
   ): Promise<void> {
     await botApiCall(
       "toggleNoForwards",
@@ -570,9 +570,9 @@ export class ChatManagementService {
       2000
     );
 
-    if (adminUserId) {
+    if (adminTelegramId) {
       await logAuditEvent({
-        adminUserId,
+        adminTelegramId,
         actionType: "toggle_no_forwards",
         targetChatId: chatId,
         payload: { enabled },
@@ -592,7 +592,7 @@ export class ChatManagementService {
       usageLimit?: number;
       requestNeeded?: boolean;
     },
-    adminUserId?: string
+    adminTelegramId?: string
   ): Promise<InviteLinkInfo> {
     const result = await botApiCall(
       "createInviteLink",
@@ -627,9 +627,9 @@ export class ChatManagementService {
       2000
     );
 
-    if (adminUserId) {
+    if (adminTelegramId) {
       await logAuditEvent({
-        adminUserId,
+        adminTelegramId,
         actionType: "create_invite_link",
         targetChatId: chatId,
         payload: params,
@@ -687,7 +687,7 @@ export class ChatManagementService {
   static async revokeInviteLink(
     chatId: string,
     link: string,
-    adminUserId?: string
+    adminTelegramId?: string
   ): Promise<void> {
     await botApiCall(
       "revokeInviteLink",
@@ -703,9 +703,9 @@ export class ChatManagementService {
       2000
     );
 
-    if (adminUserId) {
+    if (adminTelegramId) {
       await logAuditEvent({
-        adminUserId,
+        adminTelegramId,
         actionType: "revoke_invite_link",
         targetChatId: chatId,
         payload: { link },
@@ -719,7 +719,7 @@ export class ChatManagementService {
    * Telegram only keeps 48h of admin logs.
    */
   static async getChatEventLog(
-    _adminUserId: string,
+    _adminTelegramId: string,
     chatId: string,
     limit = 100
   ): Promise<ChatEventEntry[]> {

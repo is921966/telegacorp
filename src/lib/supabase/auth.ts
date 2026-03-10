@@ -38,16 +38,6 @@ export async function signInAnonymously() {
   return data;
 }
 
-export async function updateWorkCompanies(
-  companies: Array<{ email: string; enabled: boolean }>
-) {
-  const { data, error } = await supabase.auth.updateUser({
-    data: { work_companies: companies },
-  });
-  if (error) throw error;
-  return data;
-}
-
 export function onAuthStateChange(
   callback: (event: string, session: unknown) => void
 ) {

@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       parsed.data.userId,
       parsed.data.rights ?? {},
       parsed.data.rank,
-      ctx.userId
+      ctx.telegramId
     );
     return NextResponse.json({ chatId, updated: true });
   } catch (err) {

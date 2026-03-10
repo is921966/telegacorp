@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   try {
     const events = await ChatManagementService.getChatEventLog(
-      ctx.userId,
+      ctx.telegramId,
       chatId,
       limit
     );

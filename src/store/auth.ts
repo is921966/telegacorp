@@ -55,9 +55,9 @@ function loadWorkCompaniesLocal(): WorkCompany[] {
   }
 }
 
-/** Persist work_companies to localStorage + Supabase user_metadata (fire-and-forget) */
-function persistWorkCompanies(companies: WorkCompany[]) {
-  // Primary: localStorage (always works, including anonymous users)
+/** Persist work_companies to localStorage (cache) + Supabase table (source of truth) */
+function persistWorkCompanies(companies: WorkCompany[], telegramId: string | null) {
+  // Cache: localStorage (instant, always works)
   if (typeof window !== "undefined") {
     try {
       localStorage.setItem(WORK_COMPANIES_KEY, JSON.stringify(companies));
@@ -65,10 +65,12 @@ function persistWorkCompanies(companies: WorkCompany[]) {
       // localStorage full or blocked
     }
   }
-  // Secondary: Supabase user_metadata (fire-and-forget, may fail for anonymous)
-  import("@/lib/supabase/auth")
-    .then(({ updateWorkCompanies }) => updateWorkCompanies(companies))
-    .catch(() => {});
+  // Source of truth: Supabase work_companies table by telegram_id
+  if (telegramId) {
+    import("@/lib/supabase/work-companies")
+      .then(({ saveWorkCompanies }) => saveWorkCompanies(telegramId, companies))
+      .catch((err) => console.error("[WorkCompanies] persist failed:", err));
+  }
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -110,7 +112,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     if (existing.some((c) => c.email === email)) return;
     const updated = [...existing, { email, enabled: true }];
     set({ workCompanies: updated });
-    persistWorkCompanies(updated);
+    persistWorkCompanies(updated, get().telegramUser?.id ?? null);
   },
 
   toggleWorkCompany: async (email) => {
@@ -118,13 +120,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       c.email === email ? { ...c, enabled: !c.enabled } : c
     );
     set({ workCompanies: updated });
-    persistWorkCompanies(updated);
+    persistWorkCompanies(updated, get().telegramUser?.id ?? null);
   },
 
   removeWorkCompany: async (email) => {
     const updated = get().workCompanies.filter((c) => c.email !== email);
     set({ workCompanies: updated });
-    persistWorkCompanies(updated);
+    persistWorkCompanies(updated, get().telegramUser?.id ?? null);
   },
 
   reset: () =>

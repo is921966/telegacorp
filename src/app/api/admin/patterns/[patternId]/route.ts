@@ -61,7 +61,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (parsed.data.status !== undefined) {
       updateData.status = parsed.data.status;
       if (["approved", "rejected"].includes(parsed.data.status)) {
-        updateData.reviewed_by = ctx.userId;
+        updateData.reviewed_by_telegram_id = ctx.telegramId;
         updateData.reviewed_at = new Date().toISOString();
       }
     }
@@ -80,7 +80,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (error || !data) throw new Error(error?.message ?? "Update failed");
 
     await logAuditEvent({
-      adminUserId: ctx.userId,
+      adminTelegramId: ctx.telegramId,
       actionType: "update_pattern",
       payload: { patternId, changes: parsed.data },
       resultStatus: "success",

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       chatId,
       parsed.data.userId,
       parsed.data.untilDate,
-      ctx.userId
+      ctx.telegramId
     );
     return NextResponse.json({ chatId, banned: true });
   } catch (err) {
@@ -56,7 +56,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   }
 
   try {
-    await ChatManagementService.unbanUser(chatId, userId, ctx.userId);
+    await ChatManagementService.unbanUser(chatId, userId, ctx.telegramId);
     return NextResponse.json({ chatId, unbanned: true });
   } catch (err) {
     console.error(`[admin/chats/${chatId}/ban] unban failed:`, err);

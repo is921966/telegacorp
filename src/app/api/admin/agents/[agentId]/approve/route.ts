@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       .from("agents")
       .update({
         status: "approved",
-        approved_by: ctx.userId,
+        approved_by_telegram_id: ctx.telegramId,
         approved_at: new Date().toISOString(),
       })
       .eq("id", agentId);
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (error) throw new Error(error.message);
 
     await logAuditEvent({
-      adminUserId: ctx.userId,
+      adminTelegramId: ctx.telegramId,
       actionType: "approve_agent",
       payload: { agentId },
       resultStatus: "success",

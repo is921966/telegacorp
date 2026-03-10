@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     if (error || !data) throw new Error(error?.message ?? "Insert failed");
 
     await logAuditEvent({
-      adminUserId: ctx.userId,
+      adminTelegramId: ctx.telegramId,
       actionType: "create_agent",
       payload: { agentId: (data as unknown as AgentRow).id, name: parsed.data.name },
       resultStatus: "success",

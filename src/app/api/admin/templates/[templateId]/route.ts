@@ -52,7 +52,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const template = await TemplateService.updateTemplate(
       templateId,
       parsed.data,
-      ctx.userId
+      ctx.telegramId
     );
     return NextResponse.json({ template });
   } catch (err) {
@@ -72,7 +72,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   const { templateId } = await params;
 
   try {
-    await TemplateService.deactivateTemplate(templateId, ctx.userId);
+    await TemplateService.deactivateTemplate(templateId, ctx.telegramId);
     return NextResponse.json({ templateId, deactivated: true });
   } catch (err) {
     console.error(`[admin/templates/${templateId}] deactivate failed:`, err);

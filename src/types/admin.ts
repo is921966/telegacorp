@@ -29,7 +29,7 @@ export type AdminPermission =
 
 /** Context extracted from authenticated admin request */
 export interface AdminContext {
-  userId: string;
+  telegramId: string;
   role: AdminRole;
 }
 
@@ -64,7 +64,7 @@ export type AuditResultStatus = "success" | "error" | "partial";
 
 export interface AuditLogEntry {
   id: number;
-  admin_user_id: string;
+  admin_telegram_id: string;
   action_type: string;
   target_chat_id: string | null;
   target_user_id: string | null;
@@ -95,7 +95,7 @@ export interface PolicyTemplate {
   description: string | null;
   config: PolicyConfig;
   is_active: boolean;
-  created_by: string | null;
+  created_by_telegram_id: string | null;
   created_at: string;
   updated_at: string;
   version: number;

@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
     // Audit log
     if (requestedBy) {
       await logAuditEvent({
-        adminUserId: requestedBy,
+        adminTelegramId: requestedBy,
         actionType: "chat_create",
         targetChatId: String(chatId),
         payload: { title, about, userIds },

@@ -19,7 +19,7 @@ import {
 
 interface AuditEntry {
   id: number;
-  admin_user_id: string;
+  admin_telegram_id: string;
   action_type: string;
   target_chat_id: string | null;
   target_user_id: string | null;
@@ -219,7 +219,7 @@ export default function AuditPage() {
                     </span>
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground font-mono">
-                    {entry.admin_user_id.slice(0, 8)}...
+                    {entry.admin_telegram_id.slice(0, 8)}...
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground font-mono">
                     {entry.target_chat_id ?? "—"}
