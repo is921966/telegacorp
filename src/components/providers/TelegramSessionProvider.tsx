@@ -20,7 +20,7 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
   const attempted = useRef(false);
   const router = useRouter();
   const pathname = usePathname();
-  const { isTelegramConnected, setSupabaseUser, setTelegramConnected, setTelegramUser, setLoading } =
+  const { isTelegramConnected, setSupabaseUser, setTelegramConnected, setTelegramUser, setLoading, setWorkCompanies } =
     useAuthStore();
 
   useEffect(() => {
@@ -44,8 +44,12 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
 
         setSupabaseUser({
           id: session.user.id,
-          email: session.user.email!,
+          email: session.user.email ?? null,
         });
+
+        // Load work companies from user_metadata
+        const companies = session.user.user_metadata?.work_companies ?? [];
+        setWorkCompanies(companies);
 
         // 2. Check if client already exists (e.g. from HomeRedirect)
         const { getExistingClient, connectClient } = await import("@/lib/telegram/client");
@@ -80,7 +84,7 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
         setLoading(false);
       }
     })();
-  }, [isTelegramConnected, setSupabaseUser, setTelegramConnected, setTelegramUser, setLoading, pathname, router]);
+  }, [isTelegramConnected, setSupabaseUser, setTelegramConnected, setTelegramUser, setLoading, setWorkCompanies, pathname, router]);
 
   return <>{children}</>;
 }

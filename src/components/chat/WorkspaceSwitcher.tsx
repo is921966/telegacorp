@@ -1,6 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { useCorporateStore, type Workspace } from "@/store/corporate";
+import { useAuthStore } from "@/store/auth";
+import { AddCompanyModal } from "@/components/chat/AddCompanyModal";
 
 /**
  * Segmented control for switching between Personal and Work workspaces.
@@ -11,25 +14,44 @@ export function WorkspaceSwitcher() {
   const managedChatIds = useCorporateStore((s) => s.managedChatIds);
   const switchWorkspace = useCorporateStore((s) => s.switchWorkspace);
   const isLoaded = useCorporateStore((s) => s.isLoaded);
+  const workCompanies = useAuthStore((s) => s.workCompanies);
+
+  const [showAddCompany, setShowAddCompany] = useState(false);
 
   // Don't render if no managed chats or config not loaded yet
   if (!isLoaded || managedChatIds.size === 0) return null;
 
+  const handleWorkClick = () => {
+    if (workCompanies.length === 0) {
+      setShowAddCompany(true);
+    } else {
+      switchWorkspace("work");
+    }
+  };
+
   return (
-    <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50">
-      <WorkspaceButton
-        label="💬 Личное"
-        value="personal"
-        current={workspace}
-        onSelect={switchWorkspace}
+    <>
+      <div className="flex items-center gap-1 p-1 rounded-lg bg-muted/50">
+        <WorkspaceButton
+          label="💬 Личное"
+          value="personal"
+          current={workspace}
+          onSelect={switchWorkspace}
+        />
+        <WorkspaceButton
+          label="🏢 Рабочее"
+          value="work"
+          current={workspace}
+          onSelect={() => handleWorkClick()}
+        />
+      </div>
+
+      <AddCompanyModal
+        open={showAddCompany}
+        onOpenChange={setShowAddCompany}
+        onAdded={() => switchWorkspace("work")}
       />
-      <WorkspaceButton
-        label="🏢 Рабочее"
-        value="work"
-        current={workspace}
-        onSelect={switchWorkspace}
-      />
-    </div>
+    </>
   );
 }
 

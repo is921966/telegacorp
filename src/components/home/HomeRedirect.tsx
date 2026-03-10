@@ -24,7 +24,7 @@ export function HomeRedirect() {
 
         setSupabaseUser({
           id: session.user.id,
-          email: session.user.email!,
+          email: session.user.email ?? null,
         });
 
         // Try to restore Telegram session

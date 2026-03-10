@@ -32,6 +32,22 @@ export async function getUser() {
   return data.user;
 }
 
+export async function signInAnonymously() {
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateWorkCompanies(
+  companies: Array<{ email: string; enabled: boolean }>
+) {
+  const { data, error } = await supabase.auth.updateUser({
+    data: { work_companies: companies },
+  });
+  if (error) throw error;
+  return data;
+}
+
 export function onAuthStateChange(
   callback: (event: string, session: unknown) => void
 ) {
