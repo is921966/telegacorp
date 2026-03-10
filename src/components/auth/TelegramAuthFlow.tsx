@@ -63,13 +63,19 @@ export function TelegramAuthFlow() {
 
     const me = await getMe(client);
     const sessionString = saveSession();
-    await saveTelegramSession(
-      supabaseUser!.id,
-      sessionString,
-      supabaseUser!.id,
-      undefined,
-      phoneSuffix || me.phone?.slice(-4)
-    );
+
+    // Save session to Supabase — non-critical, don't block auth if it fails
+    try {
+      await saveTelegramSession(
+        supabaseUser!.id,
+        sessionString,
+        supabaseUser!.id,
+        undefined,
+        phoneSuffix || me.phone?.slice(-4)
+      );
+    } catch (err) {
+      console.warn("[TG Auth] Failed to save session to Supabase:", err);
+    }
 
     setTelegramUser(me);
     setTelegramConnected(true);
@@ -79,6 +85,10 @@ export function TelegramAuthFlow() {
 
   // ─── QR code auth flow ────────────────────────────────────────────
   const startQrAuthFlow = useCallback(async () => {
+    // Don't restart QR flow if already in password/code/done step
+    const currentStep = useAuthStore.getState().telegramAuthState.step;
+    if (currentStep !== "qr" && currentStep !== "phone") return;
+
     setTelegramAuthState({ step: "qr", error: undefined });
     setQrUrl(null);
     setQrExpires(null);
@@ -101,10 +111,13 @@ export function TelegramAuthFlow() {
     } catch (err) {
       console.error("[TG Auth] QR connection failed:", err);
       setQrLoading(false);
+      const rawMsg = err instanceof Error ? err.message : "";
+      const userMsg = rawMsg.includes("nonce") || rawMsg.includes("Step")
+        ? "Ошибка соединения. Попробуйте обновить страницу."
+        : rawMsg || "Ошибка подключения";
       setTelegramAuthState({
         step: "qr",
-        error:
-          err instanceof Error ? err.message : "Ошибка подключения",
+        error: userMsg,
       });
       return;
     }
@@ -399,11 +412,25 @@ export function TelegramAuthFlow() {
             />
           )}
           {telegramAuthState.step === "password" && (
-            <PasswordInput
-              hint={telegramAuthState.passwordHint}
-              onSubmit={handlePasswordSubmit}
-              error={telegramAuthState.error}
-            />
+            <>
+              <PasswordInput
+                hint={telegramAuthState.passwordHint}
+                onSubmit={handlePasswordSubmit}
+                error={telegramAuthState.error}
+              />
+              <div className="mt-3 text-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTelegramAuthState({ step: "qr", error: undefined });
+                    startQrAuthFlow();
+                  }}
+                  className="text-sm text-muted-foreground hover:underline"
+                >
+                  ← Попробовать другой способ
+                </button>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

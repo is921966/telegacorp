@@ -380,13 +380,16 @@ export async function startQrAuth(
           return false;
         }
 
-        // Password errors — show to user BUT let GramJS retry (password callback will be called again)
-        const passwordRetryable = [
-          "PASSWORD_HASH_INVALID",
-          "SRP_ID_INVALID",
-        ];
-        if (passwordRetryable.some((e) => errorMsg.includes(e) || err.message?.includes(e))) {
-          console.log("[TG Auth] Password error, allowing retry...", errorMsg);
+        // SRP_ID_INVALID — transient SRP session expiry, GramJS retries silently.
+        // Do NOT show error to user — it's not a wrong password.
+        if (errorMsg.includes("SRP_ID_INVALID") || err.message?.includes("SRP_ID_INVALID")) {
+          console.log("[TG Auth] SRP ID expired, GramJS will retry silently...");
+          return false;
+        }
+
+        // PASSWORD_HASH_INVALID — actual wrong password, show to user
+        if (errorMsg.includes("PASSWORD_HASH_INVALID") || err.message?.includes("PASSWORD_HASH_INVALID")) {
+          console.log("[TG Auth] Wrong password, allowing retry...", errorMsg);
           callbacks.onError(new Error("Неверный пароль. Попробуйте ещё раз."));
           return false;
         }

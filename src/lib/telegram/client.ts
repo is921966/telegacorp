@@ -66,6 +66,22 @@ export async function connectClient(
     } catch (err) {
       console.warn("[TG] connect failed, resetting client:", err);
       clientInstance = null;
+
+      // Retry once for transient MTProto handshake errors (nonce mismatch, etc.)
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("nonce") || msg.includes("Step")) {
+        console.log("[TG] Retrying connection after handshake error...");
+        const freshClient = getTelegramClient(sessionString);
+        try {
+          await freshClient.connect();
+          return freshClient;
+        } catch (retryErr) {
+          console.error("[TG] Retry also failed:", retryErr);
+          clientInstance = null;
+          throw retryErr;
+        }
+      }
+
       throw err;
     } finally {
       connectPromise = null;
