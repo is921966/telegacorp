@@ -18,12 +18,22 @@ export function SettingsView() {
   const [showAddCompany, setShowAddCompany] = useState(false);
 
   const handleLogout = async () => {
-    const { signOut } = await import("@/lib/supabase/auth");
-    const { disconnectClient } = await import("@/lib/telegram/client");
-    await disconnectClient();
-    await signOut();
+    // Navigate first to avoid GramJS TIMEOUT errors showing in UI
     resetAuth();
     router.replace("/auth");
+    // Then clean up in background
+    try {
+      const { disconnectClient } = await import("@/lib/telegram/client");
+      await disconnectClient();
+    } catch {
+      // GramJS update loop throws TIMEOUT on disconnect — ignore
+    }
+    try {
+      const { signOut } = await import("@/lib/supabase/auth");
+      await signOut();
+    } catch {
+      // ignore
+    }
   };
 
   return (
