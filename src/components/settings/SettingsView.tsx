@@ -18,20 +18,29 @@ export function SettingsView() {
   const [showAddCompany, setShowAddCompany] = useState(false);
 
   const handleLogout = async () => {
-    // 1. Terminate Telegram session (needs connected client)
+    // 1. Terminate Telegram session using GramJS built-in logOut()
+    //    This calls auth.LogOut + disconnect + session.delete
     try {
-      const { getConnectedClient } = await import("@/lib/telegram/client");
-      const client = await getConnectedClient();
+      const { getExistingClient, resetClient } = await import("@/lib/telegram/client");
+      const client = getExistingClient();
       if (client) {
-        console.log("[Logout] Calling auth.LogOut...");
-        const { Api } = await import("telegram");
-        const result = await client.invoke(new Api.auth.LogOut());
-        console.log("[Logout] auth.LogOut result:", result);
+        console.log("[Logout] Calling client.logOut()...");
+        await Promise.race([
+          client.logOut(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("logOut timeout")), 5000)),
+        ]);
+        console.log("[Logout] client.logOut() succeeded");
       } else {
-        console.warn("[Logout] No connected client for auth.LogOut");
+        console.warn("[Logout] No client for logOut");
       }
+      await resetClient();
     } catch (err) {
-      console.warn("[Logout] auth.LogOut failed:", err);
+      console.warn("[Logout] logOut error (session may still be terminated):", err);
+      // Force reset even if logOut threw
+      try {
+        const { resetClient } = await import("@/lib/telegram/client");
+        await resetClient();
+      } catch { /* ignore */ }
     }
 
     // 2. Delete saved session from Supabase BEFORE signing out
@@ -49,13 +58,7 @@ export function SettingsView() {
     resetAuth();
     router.replace("/auth");
 
-    // 4. Clean up in background
-    try {
-      const { disconnectClient } = await import("@/lib/telegram/client");
-      await disconnectClient();
-    } catch {
-      // GramJS update loop throws TIMEOUT on disconnect — ignore
-    }
+    // 4. Supabase sign out in background
     try {
       const { signOut } = await import("@/lib/supabase/auth");
       await signOut();
