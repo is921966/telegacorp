@@ -18,10 +18,23 @@ export function SettingsView() {
   const [showAddCompany, setShowAddCompany] = useState(false);
 
   const handleLogout = async () => {
-    // Navigate first to avoid GramJS TIMEOUT errors showing in UI
+    // 1. Terminate Telegram session BEFORE navigating away (needs connected client)
+    try {
+      const { getExistingClient } = await import("@/lib/telegram/client");
+      const client = getExistingClient();
+      if (client?.connected) {
+        const { Api } = await import("telegram");
+        await client.invoke(new Api.auth.LogOut());
+      }
+    } catch {
+      // LogOut may fail if session already expired — ignore
+    }
+
+    // 2. Navigate and reset state
     resetAuth();
     router.replace("/auth");
-    // Then clean up in background
+
+    // 3. Clean up in background
     try {
       const { disconnectClient } = await import("@/lib/telegram/client");
       await disconnectClient();
@@ -31,6 +44,17 @@ export function SettingsView() {
     try {
       const { signOut } = await import("@/lib/supabase/auth");
       await signOut();
+    } catch {
+      // ignore
+    }
+    // 4. Clear saved Telegram session from Supabase
+    try {
+      const { supabase } = await import("@/lib/supabase/client");
+      const { data } = await supabase.auth.getUser();
+      if (data?.user?.id) {
+        const { deleteTelegramSession } = await import("@/lib/supabase/session-store");
+        await deleteTelegramSession(data.user.id);
+      }
     } catch {
       // ignore
     }
