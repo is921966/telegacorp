@@ -100,6 +100,11 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
         setTelegramUser(me);
         setTelegramConnected(true);
 
+        // Upsert user profile to telegram_users directory
+        import("@/lib/supabase/telegram-users")
+          .then(({ upsertTelegramUser }) => upsertTelegramUser(me))
+          .catch(() => {});
+
         // Save telegram_id to user_metadata (for middleware admin lookup)
         import("@/lib/supabase/auth")
           .then(({ getSession: gs }) => gs())

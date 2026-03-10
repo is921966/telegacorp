@@ -60,3 +60,23 @@ ALTER TABLE automation_patterns ALTER COLUMN reviewed_by_telegram_id TYPE TEXT;
 ALTER TABLE agent_feedback DROP CONSTRAINT IF EXISTS agent_feedback_user_id_fkey;
 ALTER TABLE agent_feedback RENAME COLUMN user_id TO telegram_id;
 ALTER TABLE agent_feedback ALTER COLUMN telegram_id TYPE TEXT;
+
+-- ---- Part E: Telegram Users directory (auto-populated on login) ----
+
+CREATE TABLE telegram_users (
+  telegram_id TEXT PRIMARY KEY,
+  first_name TEXT NOT NULL,
+  last_name TEXT,
+  username TEXT,
+  phone TEXT,
+  photo_url TEXT,
+  last_seen_at TIMESTAMPTZ DEFAULT now(),
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE telegram_users ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "authenticated_all" ON telegram_users
+  FOR ALL
+  USING (auth.role() = 'authenticated')
+  WITH CHECK (auth.role() = 'authenticated');

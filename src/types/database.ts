@@ -201,6 +201,39 @@ export interface Database {
         Relationships: [];
       };
 
+      telegram_users: {
+        Row: {
+          telegram_id: string;
+          first_name: string;
+          last_name: string | null;
+          username: string | null;
+          phone: string | null;
+          photo_url: string | null;
+          last_seen_at: string;
+          created_at: string;
+        };
+        Insert: {
+          telegram_id: string;
+          first_name: string;
+          last_name?: string | null;
+          username?: string | null;
+          phone?: string | null;
+          photo_url?: string | null;
+          last_seen_at?: string;
+          created_at?: string;
+        };
+        Update: {
+          telegram_id?: string;
+          first_name?: string;
+          last_name?: string | null;
+          username?: string | null;
+          phone?: string | null;
+          photo_url?: string | null;
+          last_seen_at?: string;
+        };
+        Relationships: [];
+      };
+
       // ---- Admin Panel tables (migration 002) ----
 
       admin_roles: {

@@ -81,6 +81,11 @@ export function TelegramAuthFlow() {
     setTelegramConnected(true);
     setTelegramAuthState({ step: "done" });
 
+    // Upsert user profile to telegram_users directory
+    import("@/lib/supabase/telegram-users")
+      .then(({ upsertTelegramUser }) => upsertTelegramUser(me))
+      .catch(() => {});
+
     // Save telegram_id to user_metadata (for middleware admin lookup)
     import("@/lib/supabase/client")
       .then(({ supabase }) => supabase.auth.updateUser({ data: { telegram_id: me.id } }))

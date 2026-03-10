@@ -44,6 +44,12 @@ export function HomeRedirect() {
             const me = await getMe(client);
             setTelegramUser(me);
             setTelegramConnected(true);
+
+            // Upsert user profile to telegram_users directory
+            import("@/lib/supabase/telegram-users")
+              .then(({ upsertTelegramUser }) => upsertTelegramUser(me))
+              .catch(() => {});
+
             router.replace("/chat");
           } catch {
             // Session expired or invalid
