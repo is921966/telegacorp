@@ -18,23 +18,38 @@ export function SettingsView() {
   const [showAddCompany, setShowAddCompany] = useState(false);
 
   const handleLogout = async () => {
-    // 1. Terminate Telegram session BEFORE navigating away (needs connected client)
+    // 1. Terminate Telegram session (needs connected client)
     try {
-      const { getExistingClient } = await import("@/lib/telegram/client");
-      const client = getExistingClient();
-      if (client?.connected) {
+      const { getConnectedClient } = await import("@/lib/telegram/client");
+      const client = await getConnectedClient();
+      if (client) {
+        console.log("[Logout] Calling auth.LogOut...");
         const { Api } = await import("telegram");
-        await client.invoke(new Api.auth.LogOut());
+        const result = await client.invoke(new Api.auth.LogOut());
+        console.log("[Logout] auth.LogOut result:", result);
+      } else {
+        console.warn("[Logout] No connected client for auth.LogOut");
       }
-    } catch {
-      // LogOut may fail if session already expired — ignore
+    } catch (err) {
+      console.warn("[Logout] auth.LogOut failed:", err);
     }
 
-    // 2. Navigate and reset state
+    // 2. Delete saved session from Supabase BEFORE signing out
+    try {
+      if (supabaseUser?.id) {
+        const { deleteTelegramSession } = await import("@/lib/supabase/session-store");
+        await deleteTelegramSession(supabaseUser.id);
+        console.log("[Logout] Telegram session deleted from Supabase");
+      }
+    } catch (err) {
+      console.warn("[Logout] Failed to delete session:", err);
+    }
+
+    // 3. Navigate and reset state
     resetAuth();
     router.replace("/auth");
 
-    // 3. Clean up in background
+    // 4. Clean up in background
     try {
       const { disconnectClient } = await import("@/lib/telegram/client");
       await disconnectClient();
@@ -44,17 +59,6 @@ export function SettingsView() {
     try {
       const { signOut } = await import("@/lib/supabase/auth");
       await signOut();
-    } catch {
-      // ignore
-    }
-    // 4. Clear saved Telegram session from Supabase
-    try {
-      const { supabase } = await import("@/lib/supabase/client");
-      const { data } = await supabase.auth.getUser();
-      if (data?.user?.id) {
-        const { deleteTelegramSession } = await import("@/lib/supabase/session-store");
-        await deleteTelegramSession(data.user.id);
-      }
     } catch {
       // ignore
     }
