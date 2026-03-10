@@ -47,9 +47,19 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
           email: session.user.email ?? null,
         });
 
-        // Load work companies from user_metadata
-        const companies = session.user.user_metadata?.work_companies ?? [];
-        setWorkCompanies(companies);
+        // Load work companies: prefer Supabase metadata, fallback to localStorage
+        const metaCompanies = session.user.user_metadata?.work_companies;
+        if (metaCompanies && metaCompanies.length > 0) {
+          setWorkCompanies(metaCompanies);
+        } else {
+          // Fallback: load from localStorage (works for anonymous users)
+          try {
+            const raw = localStorage.getItem("tg-work-companies");
+            if (raw) setWorkCompanies(JSON.parse(raw));
+          } catch {
+            // ignore
+          }
+        }
 
         // 2. Check if client already exists (e.g. from HomeRedirect)
         const { getExistingClient, connectClient } = await import("@/lib/telegram/client");

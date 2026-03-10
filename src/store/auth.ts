@@ -42,14 +42,33 @@ const initialTelegramAuthState: TelegramAuthState = {
   step: "qr",
 };
 
-/** Persist work_companies to Supabase user_metadata (fire-and-forget) */
-async function persistWorkCompanies(companies: WorkCompany[]) {
+const WORK_COMPANIES_KEY = "tg-work-companies";
+
+/** Load work companies from localStorage */
+function loadWorkCompaniesLocal(): WorkCompany[] {
+  if (typeof window === "undefined") return [];
   try {
-    const { updateWorkCompanies } = await import("@/lib/supabase/auth");
-    await updateWorkCompanies(companies);
-  } catch (err) {
-    console.warn("Failed to persist work companies:", err);
+    const raw = localStorage.getItem(WORK_COMPANIES_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
   }
+}
+
+/** Persist work_companies to localStorage + Supabase user_metadata (fire-and-forget) */
+function persistWorkCompanies(companies: WorkCompany[]) {
+  // Primary: localStorage (always works, including anonymous users)
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(WORK_COMPANIES_KEY, JSON.stringify(companies));
+    } catch {
+      // localStorage full or blocked
+    }
+  }
+  // Secondary: Supabase user_metadata (fire-and-forget, may fail for anonymous)
+  import("@/lib/supabase/auth")
+    .then(({ updateWorkCompanies }) => updateWorkCompanies(companies))
+    .catch(() => {});
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -76,7 +95,15 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   setLoading: (loading) => set({ isLoading: loading }),
 
-  setWorkCompanies: (companies) => set({ workCompanies: companies }),
+  setWorkCompanies: (companies) => {
+    set({ workCompanies: companies });
+    // Sync to localStorage as backup
+    if (typeof window !== "undefined" && companies.length > 0) {
+      try {
+        localStorage.setItem(WORK_COMPANIES_KEY, JSON.stringify(companies));
+      } catch { /* ignore */ }
+    }
+  },
 
   addWorkCompany: async (email) => {
     const existing = get().workCompanies;
