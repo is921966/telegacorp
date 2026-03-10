@@ -23,6 +23,19 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
   const { isTelegramConnected, setSupabaseUser, setTelegramConnected, setTelegramUser, setLoading, setWorkCompanies } =
     useAuthStore();
 
+  // Suppress GramJS internal TIMEOUT errors (unhandled promise rejections from _updateLoop).
+  // These are benign — they fire when WebSocket disconnects (e.g. sign out, network change).
+  useEffect(() => {
+    const handler = (event: PromiseRejectionEvent) => {
+      const msg = event.reason?.message || String(event.reason || "");
+      if (msg === "TIMEOUT" || msg.includes("TIMEOUT")) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("unhandledrejection", handler);
+    return () => window.removeEventListener("unhandledrejection", handler);
+  }, []);
+
   useEffect(() => {
     if (attempted.current || isTelegramConnected) return;
     attempted.current = true;
