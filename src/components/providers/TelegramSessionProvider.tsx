@@ -23,17 +23,43 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
   const { isTelegramConnected, setSupabaseUser, setTelegramConnected, setTelegramUser, setLoading, setWorkCompanies } =
     useAuthStore();
 
-  // Suppress GramJS internal TIMEOUT errors (unhandled promise rejections from _updateLoop).
+  // Suppress GramJS internal TIMEOUT errors (_updateLoop pings after disconnect).
   // These are benign — they fire when WebSocket disconnects (e.g. sign out, network change).
+  // We suppress at three levels:
+  //   1. unhandledrejection / error events (capture phase, before Next.js overlay)
+  //   2. console.error (Next.js 16 overlay also shows console errors)
   useEffect(() => {
-    const handler = (event: PromiseRejectionEvent) => {
+    const rejectionHandler = (event: PromiseRejectionEvent) => {
       const msg = event.reason?.message || String(event.reason || "");
       if (msg === "TIMEOUT" || msg.includes("TIMEOUT")) {
         event.preventDefault();
+        event.stopImmediatePropagation();
       }
     };
-    window.addEventListener("unhandledrejection", handler);
-    return () => window.removeEventListener("unhandledrejection", handler);
+    const errorHandler = (event: ErrorEvent) => {
+      const msg = event.message || event.error?.message || "";
+      if (msg === "TIMEOUT" || msg.includes("TIMEOUT")) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener("unhandledrejection", rejectionHandler, true);
+    window.addEventListener("error", errorHandler, true);
+
+    // Patch console.error to filter GramJS TIMEOUT noise
+    const origConsoleError = console.error;
+    console.error = (...args: unknown[]) => {
+      const first = args[0];
+      if (first instanceof Error && first.message === "TIMEOUT") return;
+      if (typeof first === "string" && first.includes("TIMEOUT")) return;
+      origConsoleError.apply(console, args);
+    };
+
+    return () => {
+      window.removeEventListener("unhandledrejection", rejectionHandler, true);
+      window.removeEventListener("error", errorHandler, true);
+      console.error = origConsoleError;
+    };
   }, []);
 
   useEffect(() => {

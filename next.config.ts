@@ -6,6 +6,7 @@ const pkg = require("./package.json");
 const buildDate = new Date();
 
 const nextConfig: NextConfig = {
+  reactStrictMode: false,
   env: {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
     NEXT_PUBLIC_BUILD_NUMBER: String(Math.floor(buildDate.getTime() / 1000)),

@@ -61,6 +61,12 @@ ALTER TABLE agent_feedback DROP CONSTRAINT IF EXISTS agent_feedback_user_id_fkey
 ALTER TABLE agent_feedback RENAME COLUMN user_id TO telegram_id;
 ALTER TABLE agent_feedback ALTER COLUMN telegram_id TYPE TEXT;
 
+-- ---- Part B2: RLS policy for admin_roles (replace dropped admins_read_own_role) ----
+-- Allow authenticated users to read admin_roles (needed for client-side admin badge)
+DROP POLICY IF EXISTS "admins_read_own_role" ON admin_roles;
+CREATE POLICY "authenticated_select" ON admin_roles
+  FOR SELECT USING (auth.role() = 'authenticated');
+
 -- ---- Part E: Telegram Users directory (auto-populated on login) ----
 
 CREATE TABLE telegram_users (

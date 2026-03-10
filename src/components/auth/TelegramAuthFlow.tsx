@@ -45,10 +45,12 @@ export function TelegramAuthFlow() {
   // Track whether code was already sent (to suppress post-migration TIMEOUT noise)
   const codeSentRef = useRef(false);
 
-  if (!supabaseUser) {
-    router.push("/auth");
-    return null;
-  }
+  // Redirect to auth if no Supabase user (must be in effect, not during render)
+  useEffect(() => {
+    if (!supabaseUser) router.replace("/auth");
+  }, [supabaseUser, router]);
+
+  if (!supabaseUser) return null;
 
   // ─── Helper: complete auth (save session, navigate) ───────────────
   const completeAuth = async (
@@ -121,8 +123,9 @@ export function TelegramAuthFlow() {
     setQrExpires(null);
     setQrLoading(true);
 
-    // Reset stale client
-    const { resetClient } = await import("@/lib/telegram/client");
+    // Reset stale client and connect fresh (use connectClient directly to avoid
+    // premature setTelegramConnected side effects from useTelegramClient.connect)
+    const { resetClient, connectClient } = await import("@/lib/telegram/client");
     await resetClient();
 
     console.log("[TG Auth] Starting QR auth flow...");
@@ -130,11 +133,11 @@ export function TelegramAuthFlow() {
     let client: import("telegram").TelegramClient;
     try {
       client = await withTimeout(
-        connect(),
+        connectClient(""),
         CONNECT_TIMEOUT_MS,
         "Не удалось подключиться к Telegram. Проверьте интернет-соединение."
       );
-      console.log("[TG Auth] Connected for QR auth");
+      console.log("[TG Auth] Connected for QR auth, connected:", client.connected);
     } catch (err) {
       console.error("[TG Auth] QR connection failed:", err);
       setQrLoading(false);

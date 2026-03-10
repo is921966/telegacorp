@@ -7,8 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export function HomeRedirect() {
   const router = useRouter();
-  const { setSupabaseUser, setTelegramConnected, setTelegramUser, setLoading } =
-    useAuthStore();
+  const { setSupabaseUser, setLoading } = useAuthStore();
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
@@ -27,7 +26,7 @@ export function HomeRedirect() {
           email: session.user.email ?? null,
         });
 
-        // Try to restore Telegram session
+        // Check if a saved Telegram session exists (don't connect — TelegramSessionProvider handles that)
         const { loadTelegramSession } = await import(
           "@/lib/supabase/session-store"
         );
@@ -37,24 +36,7 @@ export function HomeRedirect() {
         );
 
         if (savedSession) {
-          try {
-            const { connectClient } = await import("@/lib/telegram/client");
-            const client = await connectClient(savedSession);
-            const { getMe } = await import("@/lib/telegram/auth");
-            const me = await getMe(client);
-            setTelegramUser(me);
-            setTelegramConnected(true);
-
-            // Upsert user profile to telegram_users directory
-            import("@/lib/supabase/telegram-users")
-              .then(({ upsertTelegramUser }) => upsertTelegramUser(me))
-              .catch(() => {});
-
-            router.replace("/chat");
-          } catch {
-            // Session expired or invalid
-            router.replace("/telegram-auth");
-          }
+          router.replace("/chat");
         } else {
           router.replace("/telegram-auth");
         }
@@ -67,7 +49,7 @@ export function HomeRedirect() {
     };
 
     init();
-  }, [router, setSupabaseUser, setTelegramConnected, setTelegramUser, setLoading]);
+  }, [router, setSupabaseUser, setLoading]);
 
   if (checking) {
     return (

@@ -340,6 +340,15 @@ export async function startQrAuth(
   console.log("[TG Auth] ===== QR AUTH START =====");
   console.log("[TG Auth] API ID:", apiId);
   console.log("[TG Auth] Timestamp:", new Date().toISOString());
+  console.log("[TG Auth] Client connected:", client.connected);
+
+  // Guard: ensure the client is actually connected before starting QR auth.
+  // Race conditions (StrictMode double-effects, concurrent resets) can leave
+  // the client in a disconnected state even though connect() "succeeded".
+  if (!client.connected) {
+    console.warn("[TG Auth] Client not connected, reconnecting before QR auth...");
+    await client.connect();
+  }
 
   await client.signInUserWithQrCode(
     { apiId, apiHash },

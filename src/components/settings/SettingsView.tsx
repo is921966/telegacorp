@@ -6,37 +6,48 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/store/auth";
-import { ArrowLeft, LogOut, Moon, Sun, Building2, Plus, Check, Trash2 } from "lucide-react";
+import { ArrowLeft, LogOut, Moon, Sun, Building2, Plus, Check, Trash2, Shield } from "lucide-react";
 import { useUIStore } from "@/store/ui";
+import { useAdminRole } from "@/hooks/useAdminRole";
+import { useLazyAvatar } from "@/hooks/useLazyAvatar";
 import { AddCompanyModal } from "@/components/chat/AddCompanyModal";
 
 export function SettingsView() {
   const router = useRouter();
   const { supabaseUser, telegramUser, workCompanies, toggleWorkCompany, removeWorkCompany, reset: resetAuth } = useAuthStore();
   const { theme, setTheme, setCurrentView } = useUIStore();
+  const { isAdmin } = useAdminRole(telegramUser?.id);
+  const { ref: avatarRef, avatarUrl } = useLazyAvatar(telegramUser?.id ?? "me");
   const [showAddCompany, setShowAddCompany] = useState(false);
 
   const handleLogout = async () => {
-    // 1. Terminate Telegram session using GramJS built-in logOut()
-    //    This calls auth.LogOut + disconnect + session.delete
+    // 1. Terminate Telegram session via auth.logOut API call + disconnect
     try {
       const { getExistingClient, resetClient } = await import("@/lib/telegram/client");
       const client = getExistingClient();
       if (client) {
-        console.log("[Logout] Calling client.logOut()...");
-        await Promise.race([
-          (client as unknown as { logOut(): Promise<void> }).logOut(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("logOut timeout")), 5000)),
-        ]);
-        console.log("[Logout] client.logOut() succeeded");
+        // Reconnect if WebSocket dropped (so auth.logOut reaches the server)
+        if (!client.connected) {
+          console.log("[Logout] Client disconnected, reconnecting for logOut...");
+          try { await client.connect(); } catch { /* proceed to resetClient */ }
+        }
+        if (client.connected) {
+          console.log("[Logout] Calling auth.logOut...");
+          const { Api } = await import("telegram");
+          await client.invoke(new Api.auth.LogOut());
+          console.log("[Logout] auth.logOut succeeded — session terminated");
+        } else {
+          console.warn("[Logout] Could not reconnect for logOut");
+        }
       } else {
         console.warn("[Logout] No client for logOut");
       }
       await resetClient();
     } catch (err) {
-      console.warn("[Logout] logOut error (session may still be terminated):", err);
-      // Force reset even if logOut threw
+      console.warn("[Logout] logOut error (forcing disconnect):", err);
       try {
         const { resetClient } = await import("@/lib/telegram/client");
         await resetClient();
@@ -78,35 +89,39 @@ export function SettingsView() {
         </div>
 
         <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Account</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <Label className="text-muted-foreground">Email</Label>
-                <p className="text-sm">
-                  {supabaseUser?.email ?? "Авторизация через Telegram"}
-                </p>
+          {telegramUser && (
+            <div className="flex flex-col items-center text-center mb-2">
+              <Avatar size="lg" className="!size-24 mb-3" ref={avatarRef as React.Ref<HTMLSpanElement>}>
+                {avatarUrl ? (
+                  <AvatarImage src={avatarUrl} alt={telegramUser.firstName} />
+                ) : null}
+                <AvatarFallback className="text-2xl">
+                  {telegramUser.firstName[0]}
+                  {telegramUser.lastName?.[0] ?? ""}
+                </AvatarFallback>
+              </Avatar>
+              <h2 className="text-xl font-semibold">
+                {telegramUser.firstName} {telegramUser.lastName}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {telegramUser.phone && <>+{telegramUser.phone}</>}
+                {telegramUser.phone && telegramUser.username && <> &middot; </>}
+                {telegramUser.username && <>@{telegramUser.username}</>}
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-xs text-muted-foreground/60">ID: {telegramUser.id}</span>
+                {isAdmin && (
+                  <Badge
+                    className="cursor-pointer gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs"
+                    onClick={() => router.push("/admin")}
+                  >
+                    <Shield className="h-3 w-3" />
+                    Администратор
+                  </Badge>
+                )}
               </div>
-              {telegramUser && (
-                <>
-                  <Separator />
-                  <div>
-                    <Label className="text-muted-foreground">Telegram</Label>
-                    <p className="text-sm">
-                      {telegramUser.firstName} {telegramUser.lastName}
-                      {telegramUser.username && (
-                        <span className="text-muted-foreground">
-                          {" "}@{telegramUser.username}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+            </div>
+          )}
 
           {/* Work Companies */}
           <Card>

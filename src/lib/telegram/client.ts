@@ -62,10 +62,17 @@ export async function connectClient(
   connectPromise = (async () => {
     try {
       await client.connect();
+      // Verify client wasn't reset during async connect (StrictMode double-effect race)
+      if (clientInstance !== client) {
+        try { await client.disconnect(); } catch {}
+        throw new Error("Connection invalidated by concurrent reset");
+      }
       return client;
     } catch (err) {
       console.warn("[TG] connect failed, resetting client:", err);
-      clientInstance = null;
+      // Only null the singleton if it's still OUR client (a concurrent reset
+      // may have already replaced it with a newer instance)
+      if (clientInstance === client) clientInstance = null;
 
       // Retry once for transient MTProto handshake errors (nonce mismatch, etc.)
       const msg = err instanceof Error ? err.message : "";
@@ -77,7 +84,7 @@ export async function connectClient(
           return freshClient;
         } catch (retryErr) {
           console.error("[TG] Retry also failed:", retryErr);
-          clientInstance = null;
+          if (clientInstance === freshClient) clientInstance = null;
           throw retryErr;
         }
       }
@@ -119,8 +126,11 @@ export async function disconnectClient(): Promise<void> {
 /**
  * Reset the client singleton (disconnect + null).
  * Use before starting a fresh auth flow to clear stale/broken sessions.
+ * Also invalidates any in-flight connectPromise so the next connectClient()
+ * creates a fresh connection instead of reusing a stale one.
  */
 export async function resetClient(): Promise<void> {
+  connectPromise = null;
   if (clientInstance) {
     try {
       if (clientInstance.connected) {
