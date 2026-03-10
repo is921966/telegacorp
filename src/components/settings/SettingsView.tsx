@@ -26,7 +26,7 @@ export function SettingsView() {
       if (client) {
         console.log("[Logout] Calling client.logOut()...");
         await Promise.race([
-          client.logOut(),
+          (client as unknown as { logOut(): Promise<void> }).logOut(),
           new Promise((_, reject) => setTimeout(() => reject(new Error("logOut timeout")), 5000)),
         ]);
         console.log("[Logout] client.logOut() succeeded");
