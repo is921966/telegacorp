@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useCallback, useState } from "react";
+import { useRef, useCallback, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { PhoneInput } from "@/components/auth/PhoneInput";
@@ -165,6 +165,10 @@ export function TelegramAuthFlow() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connect, supabaseUser]);
+
+  // Auto-start QR auth flow on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { startQrAuthFlow(); }, []);
 
   // ─── Phone number auth flow ───────────────────────────────────────
   const startAuthFlow = useCallback(
@@ -357,6 +361,15 @@ export function TelegramAuthFlow() {
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md">
         <CardContent className="pt-6">
+          {telegramAuthState.step === "qr" && (
+            <QrCodeLogin
+              qrUrl={qrUrl}
+              expires={qrExpires}
+              isLoading={qrLoading}
+              onBack={handleSwitchToPhone}
+              error={telegramAuthState.error}
+            />
+          )}
           {telegramAuthState.step === "phone" && (
             <>
               <PhoneInput
@@ -369,19 +382,10 @@ export function TelegramAuthFlow() {
                   onClick={handleSwitchToQr}
                   className="text-sm text-primary hover:underline"
                 >
-                  Войти по QR-коду →
+                  ← Войти по QR-коду
                 </button>
               </div>
             </>
-          )}
-          {telegramAuthState.step === "qr" && (
-            <QrCodeLogin
-              qrUrl={qrUrl}
-              expires={qrExpires}
-              isLoading={qrLoading}
-              onBack={handleSwitchToPhone}
-              error={telegramAuthState.error}
-            />
           )}
           {telegramAuthState.step === "code" && (
             <CodeInput

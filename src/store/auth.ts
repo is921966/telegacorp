@@ -39,13 +39,17 @@ interface AuthStore {
 }
 
 const initialTelegramAuthState: TelegramAuthState = {
-  step: "phone",
+  step: "qr",
 };
 
-/** Persist work_companies to Supabase user_metadata */
+/** Persist work_companies to Supabase user_metadata (fire-and-forget) */
 async function persistWorkCompanies(companies: WorkCompany[]) {
-  const { updateWorkCompanies } = await import("@/lib/supabase/auth");
-  await updateWorkCompanies(companies);
+  try {
+    const { updateWorkCompanies } = await import("@/lib/supabase/auth");
+    await updateWorkCompanies(companies);
+  } catch (err) {
+    console.warn("Failed to persist work companies:", err);
+  }
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
@@ -79,7 +83,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     if (existing.some((c) => c.email === email)) return;
     const updated = [...existing, { email, enabled: true }];
     set({ workCompanies: updated });
-    await persistWorkCompanies(updated);
+    persistWorkCompanies(updated);
   },
 
   toggleWorkCompany: async (email) => {
@@ -87,13 +91,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       c.email === email ? { ...c, enabled: !c.enabled } : c
     );
     set({ workCompanies: updated });
-    await persistWorkCompanies(updated);
+    persistWorkCompanies(updated);
   },
 
   removeWorkCompany: async (email) => {
     const updated = get().workCompanies.filter((c) => c.email !== email);
     set({ workCompanies: updated });
-    await persistWorkCompanies(updated);
+    persistWorkCompanies(updated);
   },
 
   reset: () =>

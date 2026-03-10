@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 
 interface QrCodeLoginProps {
   qrUrl: string | null;
@@ -193,14 +192,15 @@ export function QrCodeLogin({
 
       {error && <p className="text-sm text-destructive text-center">{error}</p>}
 
-      <Button
-        type="button"
-        variant="secondary"
-        className="w-full"
-        onClick={onBack}
-      >
-        ← Войти по номеру телефона
-      </Button>
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-sm text-primary hover:underline"
+        >
+          Войти по номеру телефона →
+        </button>
+      </div>
     </div>
   );
 }
