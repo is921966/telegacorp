@@ -41,6 +41,11 @@ export function getTelegramClient(sessionString = ""): TelegramClient {
     appVersion: "1.0",
   });
 
+  // Suppress GramJS WARN-level "Not connected" console.error calls that
+  // fire during normal WebSocket reconnection and trigger Next.js dev overlay.
+  // GramJS auto-reconnects — these errors are transient and informational.
+  clientInstance.setLogLevel("error");
+
   return clientInstance;
 }
 

@@ -5,6 +5,8 @@ import { ChatList } from "@/components/chat/ChatList";
 import { TopicsList } from "@/components/chat/TopicsList";
 import { MediaViewer } from "@/components/chat/MediaViewer";
 import { GroupInfo } from "@/components/group/GroupInfo";
+import { CreateGroupFlow } from "@/components/group/CreateGroupFlow";
+import { CreateChannelFlow } from "@/components/group/CreateChannelFlow";
 import { BottomNav } from "@/components/chat/BottomNav";
 import { FolderSidebar } from "@/components/chat/FolderSidebar";
 import { ViewRouter } from "@/components/chat/ViewRouter";
@@ -118,6 +120,10 @@ export function ChatLayoutClient() {
 
         {/* Media viewer overlay */}
         <MediaViewer />
+
+        {/* Creation flows */}
+        <CreateGroupFlow />
+        <CreateChannelFlow />
       </div>
 
       {/* Bottom navigation bar (mobile only) */}

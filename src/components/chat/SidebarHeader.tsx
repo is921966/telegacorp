@@ -1,16 +1,22 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { useUIStore } from "@/store/ui";
-import { Menu, SquarePen } from "lucide-react";
+import { Menu, SquarePen, MessageCircle, Users, Megaphone } from "lucide-react";
 
 export function SidebarHeader() {
-  const { setCurrentView, toggleSidebar } = useUIStore();
+  const { setCurrentView, toggleSidebar, openCreateGroup, openCreateChannel } =
+    useUIStore();
 
   return (
     <div className="flex items-center justify-between px-3 py-2 border-b">
       <div className="flex items-center gap-2">
-        {/* Hamburger menu button */}
         <Button
           variant="ghost"
           size="icon"
@@ -22,15 +28,32 @@ export function SidebarHeader() {
         </Button>
         <h1 className="text-base font-semibold">Чаты</h1>
       </div>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        title="Новое сообщение"
-        onClick={() => setCurrentView("contacts")}
-      >
-        <SquarePen className="h-4 w-4" />
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            title="Создать"
+          >
+            <SquarePen className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => setCurrentView("contacts")}>
+            <MessageCircle className="h-4 w-4 mr-2" />
+            Новое сообщение
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={openCreateGroup}>
+            <Users className="h-4 w-4 mr-2" />
+            Новая группа
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={openCreateChannel}>
+            <Megaphone className="h-4 w-4 mr-2" />
+            Новый канал
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }

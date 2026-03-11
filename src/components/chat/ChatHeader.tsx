@@ -12,7 +12,7 @@ import { useChatsStore } from "@/store/chats";
 import { useUIStore } from "@/store/ui";
 import { useCorporateStore } from "@/store/corporate";
 import { useTopicsStore } from "@/store/topics";
-import { Search, MoreVertical, ArrowLeft, Users, Settings, Trash2 } from "lucide-react";
+import { Search, MoreVertical, ArrowLeft, Users, Settings, Trash2, Pencil } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
 import { safeDate } from "@/lib/utils";
@@ -63,7 +63,7 @@ function formatParticipants(count?: number, type?: string): string {
 }
 
 export function ChatHeader() {
-  const { selectedChatId, selectedTopicId, toggleSearch, toggleGroupInfo, selectChat, selectTopic } = useUIStore();
+  const { selectedChatId, selectedTopicId, toggleSearch, toggleGroupInfo, setEditingGroupInfo, selectChat, selectTopic } = useUIStore();
   const { dialogs } = useChatsStore();
   const workspace = useCorporateStore((s) => s.workspace);
   const isManagedChat = useCorporateStore((s) => s.isManagedChat);
@@ -197,6 +197,19 @@ export function ChatHeader() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            {(dialog.type === "group" || dialog.type === "channel") && !selectedTopicId && (
+              <DropdownMenuItem
+                onClick={() => {
+                  if (!useUIStore.getState().isGroupInfoOpen) {
+                    toggleGroupInfo();
+                  }
+                  setTimeout(() => setEditingGroupInfo(true), 100);
+                }}
+              >
+                <Pencil className="h-4 w-4 mr-2" />
+                Редактировать
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem>
               <Settings className="h-4 w-4 mr-2" />
               Настройки
