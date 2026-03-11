@@ -416,11 +416,37 @@ export async function startQrAuth(
 
 export async function getMe(client: TelegramClient) {
   const me = await client.getMe();
+  const userId = me.id.toString();
+
+  // Try to download profile photo as base64 data URL
+  let photoUrl: string | undefined;
+  try {
+    const buf = await client.downloadProfilePhoto(me, { isBig: false });
+    if (buf && (buf as Buffer).length > 0) {
+      let base64: string;
+      if (typeof Buffer !== "undefined" && Buffer.isBuffer(buf)) {
+        base64 = buf.toString("base64");
+      } else {
+        // Browser fallback for Uint8Array
+        let binary = "";
+        const bytes = new Uint8Array(buf as unknown as ArrayBuffer);
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        base64 = btoa(binary);
+      }
+      photoUrl = `data:image/jpeg;base64,${base64}`;
+    }
+  } catch (e) {
+    console.warn("[getMe] Failed to download profile photo:", e);
+  }
+
   return {
-    id: me.id.toString(),
+    id: userId,
     firstName: me.firstName || "",
     lastName: me.lastName || "",
     username: me.username || "",
     phone: me.phone || "",
+    photoUrl,
   };
 }

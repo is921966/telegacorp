@@ -749,6 +749,30 @@ export interface Database {
         };
         Relationships: [];
       };
+
+      // ---- Workspace time tracking (migration 006) ----
+
+      workspace_time: {
+        Row: {
+          telegram_id: string;
+          personal_seconds: number;
+          work_seconds: number;
+          updated_at: string;
+        };
+        Insert: {
+          telegram_id: string;
+          personal_seconds?: number;
+          work_seconds?: number;
+          updated_at?: string;
+        };
+        Update: {
+          telegram_id?: string;
+          personal_seconds?: number;
+          work_seconds?: number;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

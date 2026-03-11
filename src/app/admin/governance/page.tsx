@@ -13,6 +13,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface DashboardData {
   totalAgents: number;
@@ -105,37 +107,36 @@ export default function GovernanceDashboardPage() {
     : 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">
             Governance Portal
           </h2>
-          <p className="text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             AI Agent Factory — мониторинг и управление
           </p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href="/admin/governance/patterns"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-muted hover:bg-muted/80 text-sm transition-colors"
-          >
-            <Brain className="h-4 w-4" />
-            Паттерны
-          </Link>
-          <Link
-            href="/admin/governance/agents"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 transition-colors"
-          >
-            <Bot className="h-4 w-4" />
-            Агенты
-          </Link>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/admin/governance/patterns">
+              <Brain className="h-4 w-4 mr-1.5" />
+              Паттерны
+            </Link>
+          </Button>
+          <Button size="sm" asChild>
+            <Link href="/admin/governance/agents">
+              <Bot className="h-4 w-4 mr-1.5" />
+              Агенты
+            </Link>
+          </Button>
         </div>
       </div>
 
       {/* Stat cards */}
       {dashboard && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Всего агентов"
             value={String(dashboard.totalAgents)}
@@ -154,15 +155,15 @@ export default function GovernanceDashboardPage() {
             alert={dashboard.pendingPatterns > 0}
           />
           <StatCard
-            title="Мониторинг чатов"
+            title="Мониторинг"
             value={String(dashboard.monitoredChats)}
-            subtitle="с AI-наблюдением"
+            subtitle="чатов с AI"
             icon={<Radio className="h-5 w-5 text-green-500" />}
           />
           <StatCard
             title="Выполнений"
             value={formatNumber(dashboard.totalExecutions)}
-            subtitle="всего за всё время"
+            subtitle="всего"
             icon={<Zap className="h-5 w-5 text-amber-500" />}
           />
         </div>
@@ -170,60 +171,63 @@ export default function GovernanceDashboardPage() {
 
       {/* Budget & ROI */}
       {dashboard && settings && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:gap-4 sm:grid-cols-2">
           {/* Budget */}
-          <div className="rounded-lg border border-border bg-card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <DollarSign className="h-5 w-5 text-muted-foreground" />
-              <h3 className="font-semibold">Бюджет LLM</h3>
-            </div>
-            <div className="flex items-end gap-3 mb-3">
-              <span className="text-3xl font-bold">
-                ${dashboard.totalCostUsd.toFixed(2)}
-              </span>
-              <span className="text-sm text-muted-foreground mb-1">
-                / ${settings.globalBudgetCapUsd}
-              </span>
-            </div>
-            {/* Progress bar */}
-            <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  budgetUsedPercent > 80
-                    ? "bg-red-500"
-                    : budgetUsedPercent > 50
-                      ? "bg-amber-500"
-                      : "bg-green-500"
-                }`}
-                style={{ width: `${budgetUsedPercent}%` }}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">
-              {budgetUsedPercent.toFixed(1)}% использовано
-            </p>
-          </div>
+          <Card className="py-0">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <DollarSign className="h-5 w-5 text-muted-foreground" />
+                <h3 className="font-semibold">Бюджет LLM</h3>
+              </div>
+              <div className="flex items-end gap-3 mb-3">
+                <span className="text-2xl sm:text-3xl font-bold">
+                  ${dashboard.totalCostUsd.toFixed(2)}
+                </span>
+                <span className="text-sm text-muted-foreground mb-1">
+                  / ${settings.globalBudgetCapUsd}
+                </span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    budgetUsedPercent > 80
+                      ? "bg-red-500"
+                      : budgetUsedPercent > 50
+                        ? "bg-amber-500"
+                        : "bg-green-500"
+                  }`}
+                  style={{ width: `${budgetUsedPercent}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                {budgetUsedPercent.toFixed(1)}% использовано
+              </p>
+            </CardContent>
+          </Card>
 
           {/* Time saved */}
-          <div className="rounded-lg border border-border bg-card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Clock className="h-5 w-5 text-muted-foreground" />
-              <h3 className="font-semibold">Экономия времени</h3>
-            </div>
-            <div className="flex items-end gap-3 mb-3">
-              <span className="text-3xl font-bold">
-                {formatMinutes(dashboard.totalTimeSavedMinutes)}
-              </span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Суммарно сэкономлено AI-агентами
-            </p>
-          </div>
+          <Card className="py-0">
+            <CardContent className="p-4 sm:p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <Clock className="h-5 w-5 text-muted-foreground" />
+                <h3 className="font-semibold">Экономия времени</h3>
+              </div>
+              <div className="flex items-end gap-3 mb-3">
+                <span className="text-2xl sm:text-3xl font-bold">
+                  {formatMinutes(dashboard.totalTimeSavedMinutes)}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Суммарно сэкономлено AI-агентами
+              </p>
+            </CardContent>
+          </Card>
         </div>
       )}
 
       {/* Agent cost breakdown */}
       {budget && budget.agents.length > 0 && (
-        <div className="rounded-lg border border-border bg-card">
+        <Card className="py-0">
           <div className="flex items-center gap-2 p-4 border-b border-border">
             <TrendingUp className="h-5 w-5 text-muted-foreground" />
             <h3 className="font-semibold">Расходы по агентам</h3>
@@ -234,57 +238,58 @@ export default function GovernanceDashboardPage() {
                 key={agent.id}
                 className="flex items-center justify-between px-4 py-3"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   <AgentStatusDot status={agent.status} />
-                  <div>
+                  <div className="min-w-0">
                     <Link
                       href={`/admin/governance/agents/${agent.id}`}
-                      className="text-sm font-medium hover:underline"
+                      className="text-sm font-medium hover:underline block truncate"
                     >
                       {agent.name}
                     </Link>
                     <p className="text-xs text-muted-foreground">
-                      {agent.totalExecutions} выполнений ·{" "}
-                      {formatNumber(agent.totalTokens)} токенов
+                      {agent.totalExecutions} выполнений · {formatNumber(agent.totalTokens)} токенов
                     </p>
                   </div>
                 </div>
-                <span className="text-sm font-mono tabular-nums">
+                <span className="text-sm font-mono tabular-nums shrink-0 ml-3">
                   ${agent.totalCostUsd.toFixed(2)}
                 </span>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Infrastructure status */}
       {settings && (
-        <div className="rounded-lg border border-border bg-card p-5">
-          <h3 className="font-semibold mb-3">Инфраструктура</h3>
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
-            <InfraItem
-              label="VPS API"
-              ok={!!settings.vpsApiUrl}
-              value={settings.vpsApiUrl ? "Подключён" : "Не настроен"}
-            />
-            <InfraItem
-              label="Redis"
-              ok={settings.redisConfigured}
-              value={settings.redisConfigured ? "Подключён" : "Не настроен"}
-            />
-            <InfraItem
-              label="Qdrant"
-              ok={settings.qdrantConfigured}
-              value={settings.qdrantConfigured ? "Подключён" : "Не настроен"}
-            />
-            <InfraItem
-              label="Модель"
-              ok={true}
-              value={settings.defaultModel}
-            />
-          </div>
-        </div>
+        <Card className="py-0">
+          <CardContent className="p-4 sm:p-5">
+            <h3 className="font-semibold mb-3">Инфраструктура</h3>
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+              <InfraItem
+                label="VPS API"
+                ok={!!settings.vpsApiUrl}
+                value={settings.vpsApiUrl ? "Подключён" : "Не настроен"}
+              />
+              <InfraItem
+                label="Redis"
+                ok={settings.redisConfigured}
+                value={settings.redisConfigured ? "Подключён" : "Не настроен"}
+              />
+              <InfraItem
+                label="Qdrant"
+                ok={settings.qdrantConfigured}
+                value={settings.qdrantConfigured ? "Подключён" : "Не настроен"}
+              />
+              <InfraItem
+                label="Модель"
+                ok={true}
+                value={settings.defaultModel}
+              />
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
@@ -306,19 +311,21 @@ function StatCard({
   alert?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-sm text-muted-foreground">{title}</p>
-        {icon}
-      </div>
-      <p className="text-2xl font-bold">{value}</p>
-      {subtitle && (
-        <p className={`text-xs mt-1 ${alert ? "text-amber-500" : "text-muted-foreground"}`}>
-          {alert && <AlertTriangle className="inline h-3 w-3 mr-1 -mt-0.5" />}
-          {subtitle}
-        </p>
-      )}
-    </div>
+    <Card className="py-0">
+      <CardContent className="p-3 sm:p-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs sm:text-sm text-muted-foreground">{title}</p>
+          {icon}
+        </div>
+        <p className="text-xl sm:text-2xl font-bold">{value}</p>
+        {subtitle && (
+          <p className={`text-xs mt-1 ${alert ? "text-amber-500" : "text-muted-foreground"}`}>
+            {alert && <AlertTriangle className="inline h-3 w-3 mr-1 -mt-0.5" />}
+            {subtitle}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -336,7 +343,7 @@ function AgentStatusDot({ status }: { status: string }) {
   };
   return (
     <span
-      className={`inline-block h-2.5 w-2.5 rounded-full ${colors[status] ?? "bg-gray-400"}`}
+      className={`inline-block h-2.5 w-2.5 rounded-full shrink-0 ${colors[status] ?? "bg-gray-400"}`}
       title={status}
     />
   );
@@ -354,11 +361,11 @@ function InfraItem({
   return (
     <div className="flex items-center gap-2">
       <span
-        className={`h-2 w-2 rounded-full ${ok ? "bg-green-500" : "bg-red-500"}`}
+        className={`h-2 w-2 rounded-full shrink-0 ${ok ? "bg-green-500" : "bg-red-500"}`}
       />
-      <div>
+      <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-sm">{value}</p>
+        <p className="text-sm truncate">{value}</p>
       </div>
     </div>
   );

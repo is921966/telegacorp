@@ -8,6 +8,7 @@ import {
   FileText,
   CheckCircle,
   XCircle,
+  Clock,
 } from "lucide-react";
 import {
   Table,
@@ -17,6 +18,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import type { PolicyTemplate } from "@/types/admin";
 
 export default function TemplatesPage() {
@@ -42,22 +46,23 @@ export default function TemplatesPage() {
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">
             Шаблоны политик
           </h2>
-          <p className="text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             Конфигурации настроек для корпоративных чатов
           </p>
         </div>
-        <Link
-          href="/admin/templates/new"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="h-4 w-4" /> Создать шаблон
-        </Link>
+        <Button asChild size="sm" className="w-fit">
+          <Link href="/admin/templates/new">
+            <Plus className="h-4 w-4 mr-1.5" />
+            Создать шаблон
+          </Link>
+        </Button>
       </div>
 
       {isLoading ? (
@@ -69,59 +74,109 @@ export default function TemplatesPage() {
           {error}
         </div>
       ) : templates.length === 0 ? (
-        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-          <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p>Нет шаблонов</p>
-          <p className="text-xs mt-1">
-            Создайте первый шаблон для стандартизации настроек чатов
-          </p>
-        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center py-8">
+            <FileText className="h-8 w-8 mb-2 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">Нет шаблонов</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              Создайте первый шаблон для стандартизации настроек чатов
+            </p>
+          </CardContent>
+        </Card>
       ) : (
-        <div className="rounded-lg border border-border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Название</TableHead>
-                <TableHead>Описание</TableHead>
-                <TableHead>Версия</TableHead>
-                <TableHead>Статус</TableHead>
-                <TableHead>Создан</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {templates.map((tpl) => (
-                <TableRow key={tpl.id}>
-                  <TableCell>
-                    <Link
-                      href={`/admin/templates/${tpl.id}`}
-                      className="font-medium text-blue-400 hover:underline"
-                    >
-                      {tpl.name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground max-w-[300px] truncate">
-                    {tpl.description || "—"}
-                  </TableCell>
-                  <TableCell className="tabular-nums">v{tpl.version}</TableCell>
-                  <TableCell>
-                    {tpl.is_active ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-green-400">
-                        <CheckCircle className="h-3.5 w-3.5" /> Активен
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <XCircle className="h-3.5 w-3.5" /> Неактивен
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground tabular-nums">
-                    {new Date(tpl.created_at).toLocaleDateString("ru-RU")}
-                  </TableCell>
+        <>
+          {/* Mobile: Card list */}
+          <div className="space-y-3 md:hidden">
+            {templates.map((tpl) => (
+              <Card key={tpl.id} className="py-0">
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/admin/templates/${tpl.id}`}
+                          className="font-medium text-sm text-blue-400 hover:underline"
+                        >
+                          {tpl.name}
+                        </Link>
+                        {tpl.is_active ? (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-400 border-green-500/30">
+                            <CheckCircle className="h-2.5 w-2.5 mr-0.5" />
+                            Активен
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground border-border">
+                            <XCircle className="h-2.5 w-2.5 mr-0.5" />
+                            Неактивен
+                          </Badge>
+                        )}
+                      </div>
+                      {tpl.description && (
+                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                          {tpl.description}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
+                        <span className="tabular-nums">v{tpl.version}</span>
+                        <span className="inline-flex items-center gap-1 tabular-nums">
+                          <Clock className="h-3 w-3" />
+                          {new Date(tpl.created_at).toLocaleDateString("ru-RU")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: Table */}
+          <div className="hidden md:block rounded-lg border border-border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Название</TableHead>
+                  <TableHead>Описание</TableHead>
+                  <TableHead>Версия</TableHead>
+                  <TableHead>Статус</TableHead>
+                  <TableHead>Создан</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+              </TableHeader>
+              <TableBody>
+                {templates.map((tpl) => (
+                  <TableRow key={tpl.id}>
+                    <TableCell>
+                      <Link
+                        href={`/admin/templates/${tpl.id}`}
+                        className="font-medium text-blue-400 hover:underline"
+                      >
+                        {tpl.name}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground max-w-[300px] truncate">
+                      {tpl.description || "\u2014"}
+                    </TableCell>
+                    <TableCell className="tabular-nums">v{tpl.version}</TableCell>
+                    <TableCell>
+                      {tpl.is_active ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-green-400">
+                          <CheckCircle className="h-3.5 w-3.5" /> Активен
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <XCircle className="h-3.5 w-3.5" /> Неактивен
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground tabular-nums">
+                      {new Date(tpl.created_at).toLocaleDateString("ru-RU")}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
       )}
     </div>
   );

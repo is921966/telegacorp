@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ChatList } from "@/components/chat/ChatList";
 import { TopicsList } from "@/components/chat/TopicsList";
 import { MediaViewer } from "@/components/chat/MediaViewer";
@@ -20,14 +20,42 @@ export function ChatLayoutClient() {
   const { isSidebarOpen, selectedChatId, selectedTopicId, currentView } = useUIStore();
   const { dialogs } = useChatsStore();
   const loadConfig = useCorporateStore((s) => s.loadConfig);
+  const loadWorkspaceTime = useCorporateStore((s) => s.loadWorkspaceTime);
+  const syncWorkspaceTime = useCorporateStore((s) => s.syncWorkspaceTime);
+  const flushElapsed = useCorporateStore((s) => s.flushElapsed);
   const [agentPanelId, setAgentPanelId] = useState<string | null>(null);
   useViewUrlSync();
   useRealtimeUpdates();
 
-  // Load corporate config on mount
+  // Load corporate config + workspace time on mount
   useEffect(() => {
     loadConfig();
-  }, [loadConfig]);
+    loadWorkspaceTime();
+  }, [loadConfig, loadWorkspaceTime]);
+
+  // Sync workspace time every 60s + on page close
+  useEffect(() => {
+    const interval = setInterval(() => {
+      syncWorkspaceTime();
+    }, 60_000);
+
+    const handleBeforeUnload = () => {
+      flushElapsed();
+      const state = useCorporateStore.getState();
+      const payload = JSON.stringify({
+        personalSeconds: state.personalSeconds,
+        workSeconds: state.workSeconds,
+      });
+      navigator.sendBeacon("/api/workspace-time", payload);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [syncWorkspaceTime, flushElapsed]);
 
   // Check if selected chat is a forum (for mobile routing)
   const selectedDialog = selectedChatId

@@ -1,4 +1,5 @@
 import { DashboardStats } from "@/components/admin/DashboardStats";
+import { EmployeeStats } from "@/components/admin/EmployeeStats";
 
 /**
  * Admin Dashboard — real-time statistics from Supabase.
@@ -14,6 +15,8 @@ export default function AdminDashboardPage() {
       </div>
 
       <DashboardStats />
+
+      <EmployeeStats />
 
       <div className="rounded-lg border border-border bg-card p-6">
         <p className="text-sm text-muted-foreground">

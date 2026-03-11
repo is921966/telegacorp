@@ -11,6 +11,9 @@ import {
   Users,
   ChevronRight,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface Pattern {
   id: string;
@@ -78,7 +81,6 @@ export default function PatternsPage() {
         body: JSON.stringify({ status: action }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      // Refresh list
       await fetchPatterns();
     } catch (err) {
       console.error(`Failed to ${action} pattern:`, err);
@@ -89,30 +91,27 @@ export default function PatternsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div>
-        <h2 className="text-2xl font-bold tracking-tight">
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight">
           Паттерны автоматизации
         </h2>
-        <p className="text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Обнаруженные Conversation Intelligence паттерны ручного труда
         </p>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex gap-1.5 flex-wrap">
         {STATUS_FILTER_OPTIONS.map((s) => (
-          <button
+          <Badge
             key={s}
+            variant={statusFilter === s ? "default" : "secondary"}
+            className="cursor-pointer text-xs px-2.5 py-1"
             onClick={() => setStatusFilter(s)}
-            className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
-              statusFilter === s
-                ? "bg-blue-600 text-white"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
-            }`}
           >
             {s === "all" ? "Все" : STATUS_LABELS[s] ?? s}
-          </button>
+          </Badge>
         ))}
       </div>
 
@@ -127,13 +126,15 @@ export default function PatternsPage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : patterns.length === 0 ? (
-        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-          <Brain className="h-10 w-10 mx-auto mb-3 opacity-40" />
-          <p className="text-sm">Паттерны пока не обнаружены</p>
-          <p className="text-xs mt-1">
-            Conversation Intelligence Layer начнёт выявлять паттерны после запуска VPS
-          </p>
-        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center py-8">
+            <Brain className="h-8 w-8 mb-2 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">Паттерны пока не обнаружены</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              Conversation Intelligence Layer начнёт выявлять паттерны после запуска VPS
+            </p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-3">
           {patterns.map((pattern) => (
@@ -175,7 +176,7 @@ function PatternCard({
   const canReview = ["new", "proposed"].includes(pattern.status);
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-hidden">
+    <Card className="py-0 overflow-hidden">
       {/* Header */}
       <button
         onClick={onToggle}
@@ -187,15 +188,15 @@ function PatternCard({
           }`}
         />
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{pattern.description}</p>
-          <div className="flex items-center gap-3 mt-1">
+          <p className="text-sm font-medium line-clamp-2 sm:truncate">{pattern.description}</p>
+          <div className="flex items-center gap-2 sm:gap-3 mt-1 flex-wrap">
             <PatternStatusBadge status={pattern.status} />
             {pattern.confidence !== null && (
               <span className="text-xs text-muted-foreground">
-                {(pattern.confidence * 100).toFixed(0)}% уверенность
+                {(pattern.confidence * 100).toFixed(0)}%
               </span>
             )}
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground tabular-nums">
               {new Date(pattern.detected_at).toLocaleDateString("ru-RU")}
             </span>
           </div>
@@ -213,7 +214,7 @@ function PatternCard({
       {/* Expanded details */}
       {isExpanded && (
         <div className="border-t border-border px-4 py-4 space-y-3 bg-muted/10">
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3">
             {pattern.frequency && (
               <DetailItem
                 icon={<Clock className="h-4 w-4" />}
@@ -249,42 +250,44 @@ function PatternCard({
               Рецензент: {pattern.reviewed_by.slice(0, 8)}... ·{" "}
               {pattern.reviewed_at
                 ? new Date(pattern.reviewed_at).toLocaleString("ru-RU")
-                : "—"}
+                : "\u2014"}
             </p>
           )}
 
           {/* Actions */}
           {canReview && (
             <div className="flex items-center gap-2 pt-2 border-t border-border">
-              <button
+              <Button
+                size="sm"
                 onClick={onApprove}
                 disabled={isActionLoading}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-green-600 text-white text-sm hover:bg-green-700 transition-colors disabled:opacity-50"
+                className="bg-green-600 hover:bg-green-700"
               >
                 {isActionLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
                 ) : (
-                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
                 )}
                 Одобрить
-              </button>
-              <button
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
                 onClick={onReject}
                 disabled={isActionLoading}
-                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-md bg-red-600 text-white text-sm hover:bg-red-700 transition-colors disabled:opacity-50"
               >
                 {isActionLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
                 ) : (
-                  <XCircle className="h-3.5 w-3.5" />
+                  <XCircle className="h-3.5 w-3.5 mr-1.5" />
                 )}
                 Отклонить
-              </button>
+              </Button>
             </div>
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -292,18 +295,16 @@ function PatternCard({
 
 function PatternStatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    new: "bg-cyan-500/10 text-cyan-400",
-    proposed: "bg-blue-500/10 text-blue-400",
-    approved: "bg-green-500/10 text-green-400",
-    automated: "bg-purple-500/10 text-purple-400",
-    rejected: "bg-red-500/10 text-red-400",
+    new: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
+    proposed: "bg-blue-500/10 text-blue-400 border-blue-500/30",
+    approved: "bg-green-500/10 text-green-400 border-green-500/30",
+    automated: "bg-purple-500/10 text-purple-400 border-purple-500/30",
+    rejected: "bg-red-500/10 text-red-400 border-red-500/30",
   };
   return (
-    <span
-      className={`text-xs px-2 py-0.5 rounded ${styles[status] ?? "bg-muted text-muted-foreground"}`}
-    >
+    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${styles[status] ?? ""}`}>
       {STATUS_LABELS[status] ?? status}
-    </span>
+    </Badge>
   );
 }
 

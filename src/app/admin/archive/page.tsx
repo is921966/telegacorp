@@ -16,6 +16,9 @@ import {
   Forward,
   Pencil,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 
 interface ArchivedMessage {
   id: number;
@@ -41,7 +44,6 @@ export default function ArchivePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [chatId, setChatId] = useState("");
   const [senderId, setSenderId] = useState("");
@@ -103,114 +105,107 @@ export default function ArchivePage() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Архив переписок</h2>
-          <p className="text-muted-foreground">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Архив переписок</h2>
+          <p className="text-sm text-muted-foreground">
             Поиск и просмотр сообщений из корпоративных чатов
           </p>
         </div>
-        <button
-          onClick={handleExport}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-muted hover:bg-muted/80 text-sm transition-colors"
-        >
-          <Download className="h-4 w-4" />
+        <Button variant="outline" size="sm" onClick={handleExport} className="w-fit">
+          <Download className="h-4 w-4 mr-2" />
           Экспорт CSV
-        </button>
+        </Button>
       </div>
 
       {/* Search & Filters */}
-      <form
-        onSubmit={handleSearch}
-        className="rounded-lg border border-border bg-card p-4 space-y-3"
-      >
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Полнотекстовый поиск по сообщениям..."
-            className="w-full pl-9 pr-4 py-2 rounded-md border border-border bg-background text-sm"
-          />
-        </div>
+      <form onSubmit={handleSearch}>
+        <Card className="py-0">
+          <CardContent className="p-4 space-y-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Полнотекстовый поиск по сообщениям..."
+                className="pl-9"
+              />
+            </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-5">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">
-              Chat ID
-            </label>
-            <input
-              type="text"
-              value={chatId}
-              onChange={(e) => setChatId(e.target.value)}
-              placeholder="-100..."
-              className="w-full px-3 py-1.5 rounded-md border border-border bg-background text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">
-              Sender ID
-            </label>
-            <input
-              type="text"
-              value={senderId}
-              onChange={(e) => setSenderId(e.target.value)}
-              placeholder="12345..."
-              className="w-full px-3 py-1.5 rounded-md border border-border bg-background text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">
-              С даты
-            </label>
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-md border border-border bg-background text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">
-              По дату
-            </label>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-md border border-border bg-background text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">
-              Тип медиа
-            </label>
-            <select
-              value={mediaType}
-              onChange={(e) => setMediaType(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-md border border-border bg-background text-sm"
-            >
-              <option value="">Все</option>
-              <option value="none">Только текст</option>
-              <option value="photo">Фото</option>
-              <option value="document">Документы</option>
-              <option value="video">Видео</option>
-              <option value="audio">Аудио</option>
-            </select>
-          </div>
-        </div>
+            <div className="grid gap-3 grid-cols-2 md:grid-cols-5">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  Chat ID
+                </label>
+                <Input
+                  value={chatId}
+                  onChange={(e) => setChatId(e.target.value)}
+                  placeholder="-100..."
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  Sender ID
+                </label>
+                <Input
+                  value={senderId}
+                  onChange={(e) => setSenderId(e.target.value)}
+                  placeholder="12345..."
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  С даты
+                </label>
+                <Input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  По дату
+                </label>
+                <Input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">
+                  Тип медиа
+                </label>
+                <select
+                  value={mediaType}
+                  onChange={(e) => setMediaType(e.target.value)}
+                  className="w-full h-8 px-3 rounded-md border border-input bg-transparent text-sm"
+                >
+                  <option value="">Все</option>
+                  <option value="none">Только текст</option>
+                  <option value="photo">Фото</option>
+                  <option value="document">Документы</option>
+                  <option value="video">Видео</option>
+                  <option value="audio">Аудио</option>
+                </select>
+              </div>
+            </div>
 
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700 transition-colors"
-          >
-            <Search className="h-4 w-4" />
-            Поиск
-          </button>
-        </div>
+            <div className="flex justify-end">
+              <Button type="submit" size="sm">
+                <Search className="h-4 w-4 mr-1.5" />
+                Поиск
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </form>
 
       {/* Error */}
@@ -226,14 +221,16 @@ export default function ArchivePage() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : messages.length === 0 && total === 0 ? (
-        <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-          <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
-          <p className="text-sm">
-            {searchQuery || chatId
-              ? "Сообщения не найдены"
-              : "Введите запрос или укажите фильтры для поиска"}
-          </p>
-        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center py-8">
+            <FileText className="h-8 w-8 mb-2 text-muted-foreground/50" />
+            <p className="text-sm text-muted-foreground">
+              {searchQuery || chatId
+                ? "Сообщения не найдены"
+                : "Введите запрос или укажите фильтры для поиска"}
+            </p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">
@@ -250,27 +247,31 @@ export default function ArchivePage() {
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-2">
               <p className="text-xs text-muted-foreground">
-                {page * PAGE_SIZE + 1}–
+                {page * PAGE_SIZE + 1}&ndash;
                 {Math.min((page + 1) * PAGE_SIZE, total)} из {total}
               </p>
-              <div className="flex items-center gap-2">
-                <button
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
                   onClick={() => setPage(Math.max(0, page - 1))}
                   disabled={page === 0}
-                  className="p-1 rounded hover:bg-muted disabled:opacity-30 transition-colors"
                 >
                   <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="text-xs text-muted-foreground tabular-nums">
+                </Button>
+                <span className="text-xs text-muted-foreground tabular-nums px-2">
                   {page + 1} / {totalPages}
                 </span>
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
                   onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                   disabled={page >= totalPages - 1}
-                  className="p-1 rounded hover:bg-muted disabled:opacity-30 transition-colors"
                 >
                   <ChevronRight className="h-4 w-4" />
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -283,10 +284,10 @@ export default function ArchivePage() {
 function MessageCard({ message }: { message: ArchivedMessage }) {
   return (
     <div className="rounded-lg border border-border bg-card p-3 hover:bg-accent/30 transition-colors">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2 sm:gap-3">
         <div className="flex-1 min-w-0">
           {/* Header: sender + date */}
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="text-xs font-medium text-foreground">
               {message.senderName ?? `ID: ${message.senderId ?? "?"}`}
             </span>
@@ -307,7 +308,7 @@ function MessageCard({ message }: { message: ArchivedMessage }) {
           </div>
 
           {/* Metadata badges */}
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             {message.replyToMsgId && (
               <span className="inline-flex items-center gap-0.5 text-[10px] text-blue-400">
                 <Reply className="h-3 w-3" /> #{message.replyToMsgId}
@@ -321,7 +322,9 @@ function MessageCard({ message }: { message: ArchivedMessage }) {
             {message.mediaType && (
               <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
                 <MediaIcon type={message.mediaType} />
-                {message.mediaFileName ?? message.mediaType}
+                <span className="truncate max-w-[120px] sm:max-w-none">
+                  {message.mediaFileName ?? message.mediaType}
+                </span>
                 {message.mediaFileSize && (
                   <span>({formatFileSize(message.mediaFileSize)})</span>
                 )}
@@ -338,7 +341,7 @@ function MessageCard({ message }: { message: ArchivedMessage }) {
         </div>
 
         {/* Chat/message IDs */}
-        <div className="text-right shrink-0">
+        <div className="text-right shrink-0 hidden sm:block">
           <p className="text-[10px] text-muted-foreground font-mono">
             chat:{message.chatId}
           </p>

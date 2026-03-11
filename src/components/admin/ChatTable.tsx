@@ -11,6 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import type { ManagedChatInfo } from "@/types/admin";
 
 export function ChatTable() {
@@ -53,76 +55,135 @@ export function ChatTable() {
 
   if (chats.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-        <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
-        <p>Нет управляемых чатов</p>
-        <p className="text-xs mt-1">Бот не добавлен как администратор ни в один чат</p>
-      </div>
+      <Card>
+        <CardContent className="flex flex-col items-center py-8">
+          <Users className="h-8 w-8 mb-2 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">Нет управляемых чатов</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">
+            Бот не добавлен как администратор ни в один чат
+          </p>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Чат</TableHead>
-            <TableHead>Тип</TableHead>
-            <TableHead className="text-right">Участники</TableHead>
-            <TableHead>Шаблон</TableHead>
-            <TableHead>Статус</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {chats.map((chat) => (
-            <TableRow key={chat.id}>
-              <TableCell>
-                <Link
-                  href={`/admin/chats/${chat.id}`}
-                  className="font-medium text-blue-400 hover:underline"
-                >
-                  {chat.title}
-                </Link>
-              </TableCell>
-              <TableCell>
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  {chat.type === "channel" ? (
-                    <Megaphone className="h-3.5 w-3.5" />
-                  ) : (
-                    <Hash className="h-3.5 w-3.5" />
-                  )}
-                  {chat.type === "supergroup" ? "Группа" : "Канал"}
-                </span>
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
-                {chat.participantCount.toLocaleString()}
-              </TableCell>
-              <TableCell>
-                {chat.templateId ? (
-                  <span className="text-xs bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded">
-                    Назначен
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">—</span>
-                )}
-              </TableCell>
-              <TableCell>
-                {chat.isCompliant ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-green-400">
-                    <Shield className="h-3.5 w-3.5" />
-                    OK
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-xs text-amber-400">
-                    <ShieldAlert className="h-3.5 w-3.5" />
-                    Drift
-                  </span>
-                )}
-              </TableCell>
+    <>
+      {/* Mobile: Card list */}
+      <div className="space-y-3 md:hidden">
+        {chats.map((chat) => (
+          <Card key={chat.id} className="py-0">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Link
+                      href={`/admin/chats/${chat.id}`}
+                      className="font-medium text-sm text-blue-400 hover:underline"
+                    >
+                      {chat.title}
+                    </Link>
+                    {chat.isCompliant ? (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-400 border-green-500/30">
+                        <Shield className="h-2.5 w-2.5 mr-0.5" />
+                        OK
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-400 border-amber-500/30">
+                        <ShieldAlert className="h-2.5 w-2.5 mr-0.5" />
+                        Drift
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      {chat.type === "channel" ? (
+                        <Megaphone className="h-3 w-3" />
+                      ) : (
+                        <Hash className="h-3 w-3" />
+                      )}
+                      {chat.type === "supergroup" ? "Группа" : "Канал"}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Users className="h-3 w-3" />
+                      {chat.participantCount.toLocaleString()}
+                    </span>
+                    {chat.templateId && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-blue-400 border-blue-500/30">
+                        Шаблон
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Desktop: Table */}
+      <div className="hidden md:block rounded-lg border border-border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Чат</TableHead>
+              <TableHead>Тип</TableHead>
+              <TableHead className="text-right">Участники</TableHead>
+              <TableHead>Шаблон</TableHead>
+              <TableHead>Статус</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {chats.map((chat) => (
+              <TableRow key={chat.id}>
+                <TableCell>
+                  <Link
+                    href={`/admin/chats/${chat.id}`}
+                    className="font-medium text-blue-400 hover:underline"
+                  >
+                    {chat.title}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                    {chat.type === "channel" ? (
+                      <Megaphone className="h-3.5 w-3.5" />
+                    ) : (
+                      <Hash className="h-3.5 w-3.5" />
+                    )}
+                    {chat.type === "supergroup" ? "Группа" : "Канал"}
+                  </span>
+                </TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {chat.participantCount.toLocaleString()}
+                </TableCell>
+                <TableCell>
+                  {chat.templateId ? (
+                    <Badge variant="outline" className="text-xs text-blue-400 border-blue-500/30">
+                      Назначен
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">&mdash;</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {chat.isCompliant ? (
+                    <span className="inline-flex items-center gap-1 text-xs text-green-400">
+                      <Shield className="h-3.5 w-3.5" />
+                      OK
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs text-amber-400">
+                      <ShieldAlert className="h-3.5 w-3.5" />
+                      Drift
+                    </span>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   );
 }
