@@ -10,15 +10,12 @@ import { QrCodeLogin } from "@/components/auth/QrCodeLogin";
 import { useAuthStore } from "@/store/auth";
 import { useTelegramClient } from "@/hooks/useTelegramClient";
 import { checkIsMobile } from "@/hooks/useIsMobile";
-import type { CodeDeliveryType, MobileQrAuthController, MobileQrCheckResult } from "@/lib/telegram/auth";
+import type { CodeDeliveryType } from "@/lib/telegram/auth";
 
 type Resolver<T> = (value: T) => void;
 
 /** Timeout for connection + code sending (30s) */
 const CONNECT_TIMEOUT_MS = 30_000;
-
-/** Mobile QR auth polling interval (3s) */
-const MOBILE_QR_POLL_MS = 3_000;
 
 export function TelegramAuthFlow() {
   const router = useRouter();
@@ -31,17 +28,13 @@ export function TelegramAuthFlow() {
   } = useAuthStore();
   const { connect } = useTelegramClient();
 
-  // QR code auth state
+  // QR code auth state (desktop only)
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [qrExpires, setQrExpires] = useState<number | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
 
-  // Mobile QR auth state
-  const [isChecking, setIsChecking] = useState(false);
-  const mobileQrControllerRef = useRef<MobileQrAuthController | null>(null);
-  const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Track mobile for UI branching
   const isMobileRef = useRef(false);
-  const mobileClientRef = useRef<import("telegram").TelegramClient | null>(null);
 
   // Refs for promise resolvers — GramJS calls us, we wait for UI input
   const phoneResolverRef = useRef<Resolver<string> | null>(null);
@@ -123,129 +116,7 @@ export function TelegramAuthFlow() {
     router.push("/chat");
   };
 
-  // ─── Helper: stop mobile polling ────────────────────────────────────
-  const stopMobilePolling = () => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = null;
-    }
-    mobileQrControllerRef.current?.cancel();
-    mobileQrControllerRef.current = null;
-  };
-
-  // ─── Helper: handle mobile QR check result ─────────────────────────
-  const handleMobileQrResult = async (
-    result: MobileQrCheckResult,
-    client: import("telegram").TelegramClient,
-  ): Promise<boolean> => {
-    switch (result.status) {
-      case "success": {
-        stopMobilePolling();
-        setIsChecking(false);
-        await completeAuth(client);
-        return true;
-      }
-      case "pending": {
-        setQrUrl(result.qrData.url);
-        setQrExpires(result.qrData.expires);
-        setIsChecking(false);
-        return false;
-      }
-      case "password_needed": {
-        stopMobilePolling();
-        setIsChecking(false);
-        const { getPasswordHint } = await import("@/lib/telegram/auth");
-        const hint = await getPasswordHint(client);
-        setTelegramAuthState({ step: "password", passwordHint: hint });
-        return true;
-      }
-      case "error": {
-        console.error("[TG Auth] Mobile QR check error:", result.error);
-        setIsChecking(false);
-        // Don't stop polling for transient errors
-        return false;
-      }
-    }
-  };
-
-  // ─── Mobile QR auth flow ────────────────────────────────────────────
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const startMobileQrAuthFlow = useCallback(async () => {
-    const currentStep = useAuthStore.getState().telegramAuthState.step;
-    if (currentStep !== "qr" && currentStep !== "phone") return;
-
-    setTelegramAuthState({ step: "qr", error: undefined });
-    setQrUrl(null);
-    setQrExpires(null);
-    setQrLoading(true);
-    setIsChecking(false);
-    stopMobilePolling();
-
-    const { resetClient, connectClient } = await import("@/lib/telegram/client");
-    await resetClient();
-
-    console.log("[TG Auth] Starting MOBILE QR auth flow...");
-
-    let client: import("telegram").TelegramClient;
-    try {
-      client = await withTimeout(
-        connectClient(""),
-        CONNECT_TIMEOUT_MS,
-        "Не удалось подключиться к Telegram. Проверьте интернет-соединение."
-      );
-      console.log("[TG Auth] Connected for mobile QR auth, connected:", client.connected);
-    } catch (err) {
-      console.error("[TG Auth] Mobile QR connection failed:", err);
-      setQrLoading(false);
-      const rawMsg = err instanceof Error ? err.message : "";
-      const userMsg = rawMsg.includes("nonce") || rawMsg.includes("Step")
-        ? "Ошибка соединения. Попробуйте обновить страницу."
-        : rawMsg || "Ошибка подключения";
-      setTelegramAuthState({ step: "qr", error: userMsg });
-      return;
-    }
-
-    mobileClientRef.current = client;
-
-    try {
-      const { startMobileQrAuth } = await import("@/lib/telegram/auth");
-      const controller = await startMobileQrAuth(client);
-      mobileQrControllerRef.current = controller;
-
-      // Show initial QR data
-      setQrUrl(controller.qrData.url);
-      setQrExpires(controller.qrData.expires);
-      setQrLoading(false);
-
-      // Start background polling
-      pollingIntervalRef.current = setInterval(async () => {
-        const ctrl = mobileQrControllerRef.current;
-        if (!ctrl) return;
-
-        const step = useAuthStore.getState().telegramAuthState.step;
-        if (step !== "qr") {
-          stopMobilePolling();
-          return;
-        }
-
-        try {
-          const checkResult = await ctrl.checkStatus();
-          await handleMobileQrResult(checkResult, client);
-        } catch (err) {
-          console.warn("[TG Auth] Mobile QR polling error:", err);
-        }
-      }, MOBILE_QR_POLL_MS);
-    } catch (err) {
-      console.error("[TG Auth] Mobile QR auth setup failed:", err);
-      setQrLoading(false);
-      setTelegramAuthState({
-        step: "qr",
-        error: err instanceof Error ? err.message : "Ошибка авторизации",
-      });
-    }
-  }, [connect, supabaseUser]);
-
-  // ─── QR code auth flow (desktop) ───────────────────────────────────
+  // ─── QR code auth flow (desktop only) ───────────────────────────────
   const startQrAuthFlow = useCallback(async () => {
     // Don't restart QR flow if already in password/code/done step
     const currentStep = useAuthStore.getState().telegramAuthState.step;
@@ -342,137 +213,17 @@ export function TelegramAuthFlow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connect, supabaseUser]);
 
-  // ─── Auto-start auth flow on mount (mobile vs desktop) ─────────────
+  // ─── Auto-start auth flow on mount (mobile → phone, desktop → QR) ──
   useEffect(() => {
     isMobileRef.current = checkIsMobile();
 
     if (isMobileRef.current) {
-      startMobileQrAuthFlow();
+      // Mobile: phone number auth (QR deep-link doesn't work on same device —
+      // Telegram shows "go to Settings > Devices > scan the code" instead of confirming)
+      setTelegramAuthState({ step: "phone" });
     } else {
       startQrAuthFlow();
     }
-
-    return () => {
-      stopMobilePolling();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ─── visibilitychange: check auth when returning from Telegram ─────
-  useEffect(() => {
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === "hidden") {
-        // Pause polling while tab is hidden (timers are throttled anyway)
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
-        }
-        return;
-      }
-
-      // Tab became visible
-      if (!isMobileRef.current) return;
-
-      const currentStep = useAuthStore.getState().telegramAuthState.step;
-      if (currentStep !== "qr") return;
-
-      const controller = mobileQrControllerRef.current;
-      if (!controller) return;
-
-      console.log("[TG Auth] Tab visible, checking mobile QR auth status...");
-      setIsChecking(true);
-
-      // Give the WebSocket time to reconnect (mobile browsers kill WS in background)
-      await new Promise((r) => setTimeout(r, 1500));
-
-      // Retry reconnection up to 3 times before giving up
-      let client: import("telegram").TelegramClient | null = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const { getConnectedClient, connectClient, getExistingClient } = await import("@/lib/telegram/client");
-          client = await getConnectedClient();
-          if (!client) {
-            // Try reconnecting the existing client directly (don't reset!)
-            const existing = getExistingClient();
-            if (existing) {
-              console.log(`[TG Auth] Reconnect attempt ${attempt + 1}/3...`);
-              try {
-                await existing.connect();
-                client = existing;
-              } catch {
-                // wait and retry
-                await new Promise((r) => setTimeout(r, 1000));
-              }
-            }
-          }
-          if (client) break;
-        } catch {
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-      }
-
-      if (!client) {
-        console.warn("[TG Auth] No client after 3 reconnect attempts, restarting flow...");
-        setIsChecking(false);
-        startMobileQrAuthFlow();
-        return;
-      }
-
-      // Retry checkStatus up to 4 times (server may need time to propagate confirmation)
-      const MAX_STATUS_CHECKS = 4;
-      const STATUS_CHECK_DELAY = 2000;
-
-      for (let i = 0; i < MAX_STATUS_CHECKS; i++) {
-        try {
-          const result = await controller.checkStatus();
-
-          if (result.status === "success" || result.status === "password_needed") {
-            await handleMobileQrResult(result, client);
-            return; // Done — either authed or showing password screen
-          }
-
-          if (result.status === "pending" && i < MAX_STATUS_CHECKS - 1) {
-            console.log(`[TG Auth] Status pending, retrying (${i + 1}/${MAX_STATUS_CHECKS})...`);
-            await new Promise((r) => setTimeout(r, STATUS_CHECK_DELAY));
-            continue;
-          }
-
-          // Last attempt or error — fall through to resume polling
-          if (result.status === "pending") {
-            setQrUrl(result.qrData.url);
-            setQrExpires(result.qrData.expires);
-          }
-        } catch (err) {
-          console.warn(`[TG Auth] Status check ${i + 1} failed:`, err);
-          if (i < MAX_STATUS_CHECKS - 1) {
-            await new Promise((r) => setTimeout(r, STATUS_CHECK_DELAY));
-          }
-        }
-      }
-
-      // Status checks exhausted without success — user may not have confirmed yet.
-      // Resume background polling and hide spinner.
-      setIsChecking(false);
-      if (!pollingIntervalRef.current && mobileQrControllerRef.current) {
-        pollingIntervalRef.current = setInterval(async () => {
-          const ctrl = mobileQrControllerRef.current;
-          if (!ctrl) return;
-          const step = useAuthStore.getState().telegramAuthState.step;
-          if (step !== "qr") { stopMobilePolling(); return; }
-          try {
-            const r = await ctrl.checkStatus();
-            await handleMobileQrResult(r, client!);
-          } catch (e) {
-            console.warn("[TG Auth] Resumed polling error:", e);
-          }
-        }, MOBILE_QR_POLL_MS);
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -613,42 +364,9 @@ export function TelegramAuthFlow() {
 
   const handlePasswordSubmit = async (password: string) => {
     if (passwordResolverRef.current) {
-      // Desktop QR or phone auth flow — existing behavior
       setTelegramAuthState({ error: undefined });
       passwordResolverRef.current(password);
       passwordResolverRef.current = null;
-    } else if (isMobileRef.current) {
-      // Mobile QR flow — handle 2FA directly
-      setTelegramAuthState({ error: undefined });
-      try {
-        const { checkPasswordForMobileQr } = await import("@/lib/telegram/auth");
-        const client = mobileClientRef.current;
-        if (!client) throw new Error("Нет подключения к Telegram");
-
-        await checkPasswordForMobileQr(client, password);
-        await completeAuth(client);
-      } catch (err) {
-        const rpcErr = err as { errorMessage?: string };
-        if (rpcErr.errorMessage === "PASSWORD_HASH_INVALID") {
-          setTelegramAuthState({ error: "Неверный пароль. Попробуйте ещё раз." });
-        } else if (rpcErr.errorMessage === "SRP_ID_INVALID") {
-          // SRP session expired — retry silently
-          console.log("[TG Auth] SRP expired, retrying password check...");
-          try {
-            const { checkPasswordForMobileQr: retry } = await import("@/lib/telegram/auth");
-            await retry(mobileClientRef.current!, password);
-            await completeAuth(mobileClientRef.current!);
-          } catch (retryErr) {
-            setTelegramAuthState({
-              error: retryErr instanceof Error ? retryErr.message : "Ошибка авторизации",
-            });
-          }
-        } else {
-          setTelegramAuthState({
-            error: err instanceof Error ? err.message : "Ошибка авторизации",
-          });
-        }
-      }
     }
   };
 
@@ -684,19 +402,13 @@ export function TelegramAuthFlow() {
 
   const handleSwitchToQr = () => {
     setTelegramAuthState({ step: "qr", error: undefined });
-    if (isMobileRef.current) {
-      startMobileQrAuthFlow();
-    } else {
-      startQrAuthFlow();
-    }
+    startQrAuthFlow();
   };
 
   const handleSwitchToPhone = () => {
-    stopMobilePolling();
     setQrUrl(null);
     setQrExpires(null);
     setQrLoading(false);
-    setIsChecking(false);
     setTelegramAuthState({ step: "phone", error: undefined });
   };
 
@@ -711,7 +423,6 @@ export function TelegramAuthFlow() {
               qrUrl={qrUrl}
               expires={qrExpires}
               isLoading={qrLoading}
-              isChecking={isChecking}
               onBack={handleSwitchToPhone}
               error={telegramAuthState.error}
             />
@@ -722,15 +433,17 @@ export function TelegramAuthFlow() {
                 onSubmit={handlePhoneSubmit}
                 error={telegramAuthState.error}
               />
-              <div className="mt-3 text-center">
-                <button
-                  type="button"
-                  onClick={handleSwitchToQr}
-                  className="text-sm text-primary hover:underline"
-                >
-                  ← Войти по QR-коду
-                </button>
-              </div>
+              {!isMobileRef.current && (
+                <div className="mt-3 text-center">
+                  <button
+                    type="button"
+                    onClick={handleSwitchToQr}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    ← Войти по QR-коду
+                  </button>
+                </div>
+              )}
             </>
           )}
           {telegramAuthState.step === "code" && (
@@ -755,12 +468,7 @@ export function TelegramAuthFlow() {
                 <button
                   type="button"
                   onClick={() => {
-                    setTelegramAuthState({ step: "qr", error: undefined });
-                    if (isMobileRef.current) {
-                      startMobileQrAuthFlow();
-                    } else {
-                      startQrAuthFlow();
-                    }
+                    setTelegramAuthState({ step: "phone", error: undefined });
                   }}
                   className="text-sm text-muted-foreground hover:underline"
                 >
