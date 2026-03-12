@@ -115,9 +115,9 @@ export function QrCodeLogin({
         </h2>
         <p className="text-sm text-muted-foreground mt-2">
           {isChecking && isMobile
-            ? "Проверяем подтверждение входа..."
+            ? "Проверяем вход..."
             : isMobile
-              ? "Нажмите кнопку ниже — откроется Telegram для подтверждения входа"
+              ? "Нажмите кнопку ниже, чтобы войти через Telegram"
               : "Откройте Telegram на телефоне и отсканируйте QR-код"}
         </p>
       </div>
@@ -155,7 +155,7 @@ export function QrCodeLogin({
               <p className="text-center text-xs text-muted-foreground">
                 {isChecking
                   ? "Подождите, проверяем статус входа..."
-                  : "После подтверждения в Telegram вы автоматически войдёте в приложение"}
+                  : "После перехода в Telegram вернитесь сюда — вход произойдёт автоматически"}
               </p>
             </div>
           ) : (
@@ -190,8 +190,7 @@ export function QrCodeLogin({
       {isMobile && !isChecking && (
         <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground space-y-1">
           <p>1. Нажмите <strong>«Открыть Telegram»</strong></p>
-          <p>2. Подтвердите вход в приложении Telegram</p>
-          <p>3. Вернитесь сюда — вход произойдёт автоматически</p>
+          <p>2. Вернитесь сюда — вход произойдёт автоматически</p>
         </div>
       )}
 
