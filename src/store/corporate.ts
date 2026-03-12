@@ -3,7 +3,10 @@ import type { PolicyConfig } from "@/types/admin";
 
 export type Workspace = "personal" | "work";
 
-const WS_TIME_KEY = "tg-workspace-time";
+/** localStorage key scoped to telegram_id (so different users don't share timers) */
+function getWsTimeKey(telegramId: string): string {
+  return `tg-workspace-time-${telegramId}`;
+}
 
 interface WorkspaceTimeData {
   personalSeconds: number;
@@ -27,6 +30,7 @@ interface CorporateStore {
   isLoading: boolean;
 
   // Workspace time tracking
+  telegramId: string | null;
   personalSeconds: number;
   workSeconds: number;
   workspaceSwitchedAt: number;
@@ -37,8 +41,11 @@ interface CorporateStore {
   /** Load corporate config from API */
   loadConfig: () => Promise<void>;
 
-  /** Load workspace time from localStorage */
-  loadWorkspaceTime: () => void;
+  /**
+   * Load workspace time: fetch from server first, then merge with localStorage.
+   * Must be called with telegramId so data is scoped per user.
+   */
+  loadWorkspaceTime: (telegramId: string) => Promise<void>;
 
   /** Get accumulated seconds for current workspace including live elapsed */
   getCurrentElapsed: () => number;
@@ -62,10 +69,10 @@ interface CorporateStore {
   reset: () => void;
 }
 
-function loadTimeFromStorage(): WorkspaceTimeData {
+function loadTimeFromStorage(telegramId: string): WorkspaceTimeData {
   if (typeof window === "undefined") return { personalSeconds: 0, workSeconds: 0 };
   try {
-    const raw = localStorage.getItem(WS_TIME_KEY);
+    const raw = localStorage.getItem(getWsTimeKey(telegramId));
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
@@ -77,11 +84,26 @@ function loadTimeFromStorage(): WorkspaceTimeData {
   return { personalSeconds: 0, workSeconds: 0 };
 }
 
-function saveTimeToStorage(data: WorkspaceTimeData) {
+function saveTimeToStorage(telegramId: string, data: WorkspaceTimeData) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(WS_TIME_KEY, JSON.stringify(data));
+    localStorage.setItem(getWsTimeKey(telegramId), JSON.stringify(data));
   } catch { /* ignore */ }
+}
+
+/** Fetch workspace time from server */
+async function fetchTimeFromServer(): Promise<WorkspaceTimeData | null> {
+  try {
+    const res = await fetch("/api/workspace-time");
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      personalSeconds: data.personalSeconds ?? 0,
+      workSeconds: data.workSeconds ?? 0,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export const useCorporateStore = create<CorporateStore>((set, get) => ({
@@ -94,6 +116,7 @@ export const useCorporateStore = create<CorporateStore>((set, get) => ({
   isLoading: false,
 
   // Time tracking
+  telegramId: null,
   personalSeconds: 0,
   workSeconds: 0,
   workspaceSwitchedAt: Date.now(),
@@ -117,21 +140,41 @@ export const useCorporateStore = create<CorporateStore>((set, get) => ({
     }
     set(updates);
 
-    // Persist to localStorage
+    // Persist to localStorage (scoped by telegramId)
     const next = get();
-    saveTimeToStorage({
-      personalSeconds: next.personalSeconds,
-      workSeconds: next.workSeconds,
-    });
+    if (next.telegramId) {
+      saveTimeToStorage(next.telegramId, {
+        personalSeconds: next.personalSeconds,
+        workSeconds: next.workSeconds,
+      });
+    }
   },
 
-  loadWorkspaceTime: () => {
-    const data = loadTimeFromStorage();
+  loadWorkspaceTime: async (telegramId: string) => {
+    set({ telegramId });
+
+    // 1. Read from scoped localStorage (instant, offline-safe)
+    const local = loadTimeFromStorage(telegramId);
+
+    // 2. Fetch from server (source of truth — includes other devices)
+    const server = await fetchTimeFromServer();
+
+    // 3. Merge: take MAX of each counter so no data is lost
+    //    (handles case where server has data from another device,
+    //     or localStorage has data not yet synced)
+    const merged: WorkspaceTimeData = {
+      personalSeconds: Math.max(local.personalSeconds, server?.personalSeconds ?? 0),
+      workSeconds: Math.max(local.workSeconds, server?.workSeconds ?? 0),
+    };
+
     set({
-      personalSeconds: data.personalSeconds,
-      workSeconds: data.workSeconds,
+      personalSeconds: merged.personalSeconds,
+      workSeconds: merged.workSeconds,
       workspaceSwitchedAt: Date.now(),
     });
+
+    // Persist merged result to localStorage
+    saveTimeToStorage(telegramId, merged);
   },
 
   getCurrentElapsed: () => {
@@ -153,10 +196,12 @@ export const useCorporateStore = create<CorporateStore>((set, get) => ({
     set(updates);
 
     const next = get();
-    saveTimeToStorage({
-      personalSeconds: next.personalSeconds,
-      workSeconds: next.workSeconds,
-    });
+    if (next.telegramId) {
+      saveTimeToStorage(next.telegramId, {
+        personalSeconds: next.personalSeconds,
+        workSeconds: next.workSeconds,
+      });
+    }
   },
 
   syncWorkspaceTime: async () => {
@@ -236,6 +281,7 @@ export const useCorporateStore = create<CorporateStore>((set, get) => ({
       templates: [],
       isLoaded: false,
       isLoading: false,
+      telegramId: null,
       personalSeconds: 0,
       workSeconds: 0,
       workspaceSwitchedAt: Date.now(),

@@ -15,12 +15,14 @@ import { useViewUrlSync } from "@/hooks/useViewUrlSync";
 import { useRealtimeUpdates } from "@/hooks/useRealtimeUpdates";
 import { useUIStore } from "@/store/ui";
 import { useChatsStore } from "@/store/chats";
+import { useAuthStore } from "@/store/auth";
 import { useCorporateStore } from "@/store/corporate";
 import { cn } from "@/lib/utils";
 
 export function ChatLayoutClient() {
   const { isSidebarOpen, selectedChatId, selectedTopicId, currentView } = useUIStore();
   const { dialogs } = useChatsStore();
+  const telegramUser = useAuthStore((s) => s.telegramUser);
   const loadConfig = useCorporateStore((s) => s.loadConfig);
   const loadWorkspaceTime = useCorporateStore((s) => s.loadWorkspaceTime);
   const syncWorkspaceTime = useCorporateStore((s) => s.syncWorkspaceTime);
@@ -29,11 +31,13 @@ export function ChatLayoutClient() {
   useViewUrlSync();
   useRealtimeUpdates();
 
-  // Load corporate config + workspace time on mount
+  // Load corporate config + workspace time on mount (scoped to telegram_id)
   useEffect(() => {
     loadConfig();
-    loadWorkspaceTime();
-  }, [loadConfig, loadWorkspaceTime]);
+    if (telegramUser?.id) {
+      loadWorkspaceTime(telegramUser.id);
+    }
+  }, [loadConfig, loadWorkspaceTime, telegramUser?.id]);
 
   // Sync workspace time every 60s + on page close
   useEffect(() => {
