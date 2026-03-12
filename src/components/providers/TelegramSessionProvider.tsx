@@ -46,12 +46,19 @@ export function TelegramSessionProvider({ children }: { children: React.ReactNod
     window.addEventListener("unhandledrejection", rejectionHandler, true);
     window.addEventListener("error", errorHandler, true);
 
-    // Patch console.error to filter GramJS TIMEOUT noise
+    // Patch console.error to filter benign GramJS noise
     const origConsoleError = console.error;
     console.error = (...args: unknown[]) => {
       const first = args[0];
       if (first instanceof Error && first.message === "TIMEOUT") return;
       if (typeof first === "string" && first.includes("TIMEOUT")) return;
+      // GramJS sometimes logs empty objects {} for avatar download / RPC errors
+      if (
+        first !== null &&
+        typeof first === "object" &&
+        !(first instanceof Error) &&
+        Object.keys(first as Record<string, unknown>).length === 0
+      ) return;
       origConsoleError.apply(console, args);
     };
 
