@@ -1,31 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface QrCodeLoginProps {
   qrUrl: string | null;
   expires: number | null;
   isLoading: boolean;
+  isChecking?: boolean;
   onBack: () => void;
   error?: string;
-}
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    setIsMobile(
-      /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(
-        navigator.userAgent
-      )
-    );
-  }, []);
-  return isMobile;
 }
 
 export function QrCodeLogin({
   qrUrl,
   expires,
   isLoading,
+  isChecking,
   onBack,
   error,
 }: QrCodeLoginProps) {
@@ -123,9 +114,11 @@ export function QrCodeLogin({
           {isMobile ? "Вход через Telegram" : "Вход по QR-коду"}
         </h2>
         <p className="text-sm text-muted-foreground mt-2">
-          {isMobile
-            ? "Нажмите кнопку ниже — откроется Telegram для подтверждения входа"
-            : "Откройте Telegram на телефоне и отсканируйте QR-код"}
+          {isChecking && isMobile
+            ? "Проверяем подтверждение входа..."
+            : isMobile
+              ? "Нажмите кнопку ниже — откроется Telegram для подтверждения входа"
+              : "Откройте Telegram на телефоне и отсканируйте QR-код"}
         </p>
       </div>
 
@@ -140,17 +133,29 @@ export function QrCodeLogin({
         ) : qrUrl ? (
           isMobile ? (
             <div className="w-full space-y-3">
-              <a
-                href={qrUrl}
-                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#2AABEE] px-4 py-3 text-base font-medium text-white transition-colors hover:bg-[#229ED9] active:bg-[#1E8DC1]"
-              >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current">
-                  <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
-                </svg>
-                Открыть Telegram
-              </a>
+              {isChecking ? (
+                <div className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-base font-medium text-primary">
+                  <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+                    <path fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" className="opacity-75" />
+                  </svg>
+                  Проверяем авторизацию...
+                </div>
+              ) : (
+                <a
+                  href={qrUrl}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#2AABEE] px-4 py-3 text-base font-medium text-white transition-colors hover:bg-[#229ED9] active:bg-[#1E8DC1]"
+                >
+                  <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current">
+                    <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" />
+                  </svg>
+                  Открыть Telegram
+                </a>
+              )}
               <p className="text-center text-xs text-muted-foreground">
-                После подтверждения в Telegram вы автоматически войдёте в приложение
+                {isChecking
+                  ? "Подождите, проверяем статус входа..."
+                  : "После подтверждения в Telegram вы автоматически войдёте в приложение"}
               </p>
             </div>
           ) : (
@@ -162,12 +167,12 @@ export function QrCodeLogin({
       </div>
 
       {/* Timer */}
-      {timeLeft !== null && timeLeft > 0 && (
+      {timeLeft !== null && timeLeft > 0 && !isChecking && (
         <p className="text-center text-xs text-muted-foreground">
           {isMobile ? "Ссылка" : "QR-код"} действительн{isMobile ? "а" : ""}: {timeLeft} сек.
         </p>
       )}
-      {timeLeft !== null && timeLeft <= 0 && (
+      {timeLeft !== null && timeLeft <= 0 && !isChecking && (
         <p className="text-center text-xs text-amber-600">
           {isMobile ? "Ссылка истекла" : "QR-код истёк"} — новая генерируется автоматически...
         </p>
@@ -182,7 +187,7 @@ export function QrCodeLogin({
         </div>
       )}
 
-      {isMobile && (
+      {isMobile && !isChecking && (
         <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground space-y-1">
           <p>1. Нажмите <strong>«Открыть Telegram»</strong></p>
           <p>2. Подтвердите вход в приложении Telegram</p>

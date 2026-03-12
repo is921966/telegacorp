@@ -414,6 +414,185 @@ export async function startQrAuth(
   console.log("[TG Auth] ===== QR AUTH COMPLETE =====");
 }
 
+// ─── Mobile QR Auth (bypasses broken signInUserWithQrCode) ─────────
+
+/**
+ * Controller returned by startMobileQrAuth for polling-based auth.
+ */
+export interface MobileQrAuthController {
+  /** Current QR data (url + expires) */
+  qrData: QrTokenData;
+  /** Check auth status — call ExportLoginToken and handle all result types */
+  checkStatus: () => Promise<MobileQrCheckResult>;
+  /** Cancel the auth flow */
+  cancel: () => void;
+}
+
+export type MobileQrCheckResult =
+  | { status: "pending"; qrData: QrTokenData }
+  | { status: "success" }
+  | { status: "password_needed" }
+  | { status: "error"; error: Error };
+
+/**
+ * Convert LoginToken to deep-link QR data.
+ */
+function tokenToQrData(result: Api.auth.LoginToken): QrTokenData {
+  const tokenBase64 = result.token
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+  return {
+    url: `tg://login?token=${tokenBase64}`,
+    expires: result.expires,
+  };
+}
+
+/**
+ * Start mobile QR auth flow with manual ExportLoginToken polling.
+ *
+ * Unlike signInUserWithQrCode, this doesn't rely on UpdateLoginToken
+ * WebSocket events (which are lost when the mobile browser tab is backgrounded).
+ * Instead, it provides a checkStatus() function that the UI polls.
+ */
+export async function startMobileQrAuth(
+  client: TelegramClient
+): Promise<MobileQrAuthController> {
+  const apiId = Number(process.env.NEXT_PUBLIC_TELEGRAM_API_ID);
+  const apiHash = (process.env.NEXT_PUBLIC_TELEGRAM_API_HASH || "").trim();
+  let cancelled = false;
+
+  console.log("[TG Auth] ===== MOBILE QR AUTH START =====");
+
+  // Ensure connected
+  if (!client.connected) {
+    console.warn("[TG Auth] Client not connected, reconnecting...");
+    await client.connect();
+  }
+
+  // Initial token export
+  const initialResult = await client.invoke(
+    new Api.auth.ExportLoginToken({ apiId, apiHash, exceptIds: [] })
+  );
+
+  if (!(initialResult instanceof Api.auth.LoginToken)) {
+    throw new Error("Unexpected initial QR response: " + (initialResult as { className?: string }).className);
+  }
+
+  let currentQrData = tokenToQrData(initialResult);
+  console.log("[TG Auth] Mobile QR token generated, expires:", new Date(initialResult.expires * 1000).toISOString());
+
+  async function checkStatus(): Promise<MobileQrCheckResult> {
+    if (cancelled) return { status: "error", error: new Error("Cancelled") };
+
+    try {
+      // Reconnect if WebSocket dropped (common on mobile after backgrounding)
+      if (!client.connected) {
+        console.log("[TG Auth] Mobile QR: reconnecting dropped connection...");
+        await client.connect();
+      }
+
+      const result = await client.invoke(
+        new Api.auth.ExportLoginToken({ apiId, apiHash, exceptIds: [] })
+      );
+
+      // Still pending — new token generated
+      if (result instanceof Api.auth.LoginToken) {
+        currentQrData = tokenToQrData(result);
+        return { status: "pending", qrData: currentQrData };
+      }
+
+      // Success! User confirmed in Telegram
+      if (result instanceof Api.auth.LoginTokenSuccess) {
+        console.log("[TG Auth] Mobile QR: LoginTokenSuccess received!");
+        return { status: "success" };
+      }
+
+      // DC migration required
+      if (result instanceof Api.auth.LoginTokenMigrateTo) {
+        console.log("[TG Auth] Mobile QR: DC migration to", result.dcId);
+        await (client as unknown as { _switchDC: (dc: number) => Promise<void> })._switchDC(result.dcId);
+        const migrated = await client.invoke(
+          new Api.auth.ImportLoginToken({ token: result.token })
+        );
+        if (migrated instanceof Api.auth.LoginTokenSuccess) {
+          console.log("[TG Auth] Mobile QR: LoginTokenSuccess after migration!");
+          return { status: "success" };
+        }
+        throw new Error("Migration failed: " + (migrated as { className?: string }).className);
+      }
+
+      throw new Error("Unknown ExportLoginToken result: " + (result as { className?: string }).className);
+    } catch (err) {
+      const rpcErr = err as { errorMessage?: string };
+
+      // 2FA password needed
+      if (rpcErr.errorMessage === "SESSION_PASSWORD_NEEDED") {
+        console.log("[TG Auth] Mobile QR: 2FA password required");
+        return { status: "password_needed" };
+      }
+
+      // Token expired — generate fresh one
+      if (
+        rpcErr.errorMessage === "AUTH_TOKEN_EXPIRED" ||
+        rpcErr.errorMessage === "AUTH_TOKEN_INVALID"
+      ) {
+        console.log("[TG Auth] Mobile QR: token expired, generating new one...");
+        try {
+          if (!client.connected) await client.connect();
+          const fresh = await client.invoke(
+            new Api.auth.ExportLoginToken({ apiId, apiHash, exceptIds: [] })
+          );
+          if (fresh instanceof Api.auth.LoginToken) {
+            currentQrData = tokenToQrData(fresh);
+            return { status: "pending", qrData: currentQrData };
+          }
+        } catch {
+          // Fall through to error
+        }
+      }
+
+      return {
+        status: "error",
+        error: err instanceof Error ? err : new Error(String(err)),
+      };
+    }
+  }
+
+  return {
+    qrData: currentQrData,
+    checkStatus,
+    cancel: () => { cancelled = true; },
+  };
+}
+
+/**
+ * Handle 2FA password check for mobile QR auth flow.
+ * Called when checkStatus returns "password_needed".
+ */
+export async function checkPasswordForMobileQr(
+  client: TelegramClient,
+  password: string
+): Promise<void> {
+  const pwdInfo = await client.invoke(new Api.account.GetPassword());
+  const { computeCheck } = await import("telegram/Password");
+  const srpCheck = await computeCheck(pwdInfo, password);
+  await client.invoke(
+    new Api.auth.CheckPassword({ password: srpCheck })
+  );
+}
+
+/**
+ * Get the 2FA password hint for mobile QR auth flow.
+ */
+export async function getPasswordHint(
+  client: TelegramClient
+): Promise<string | undefined> {
+  const pwdInfo = await client.invoke(new Api.account.GetPassword());
+  return pwdInfo.hint || undefined;
+}
+
 export async function getMe(client: TelegramClient) {
   const me = await client.getMe();
   const userId = me.id.toString();
