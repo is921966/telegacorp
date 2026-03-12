@@ -20,22 +20,22 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = createServerSupabase();
 
-    // Get a super_admin userId for the GramJS user session
+    // Get a super_admin telegram_id for the GramJS user session
     const { data: adminRole } = await supabase
       .from("admin_roles")
-      .select("user_id")
+      .select("telegram_id")
       .eq("role", "super_admin")
       .limit(1)
       .single();
 
-    if (!adminRole) {
+    if (!adminRole?.telegram_id) {
       return NextResponse.json(
         { error: "No super_admin found to run event collection" },
         { status: 500 }
       );
     }
 
-    const userId = (adminRole as unknown as { user_id: string }).user_id;
+    const userId = adminRole.telegram_id;
 
     // Get managed chat IDs from chat_archive_state (is_enabled)
     const { data: states } = await supabase
