@@ -15,19 +15,40 @@ export function LoginForm() {
   const handleTelegramLogin = async () => {
     setError(null);
     setIsLoading(true);
-    try {
-      const data = await signInAnonymously();
-      if (data.user) {
-        setSupabaseUser({ id: data.user.id, email: null });
-        router.push("/telegram-auth");
+
+    // Retry up to 3 times (mobile WebKit sometimes fails first fetch after wake)
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const data = await signInAnonymously();
+        if (data.user) {
+          setSupabaseUser({ id: data.user.id, email: null });
+          router.push("/telegram-auth");
+          return;
+        }
+        setError("Не удалось создать сессию");
+        setIsLoading(false);
+        return;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        const isNetworkError = msg === "Load failed" || msg === "Failed to fetch" || msg === "NetworkError when attempting to fetch resource.";
+
+        if (isNetworkError && attempt < MAX_RETRIES) {
+          console.warn(`[Auth] Network error on attempt ${attempt}, retrying...`);
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+          continue;
+        }
+
+        setError(isNetworkError
+          ? "Ошибка сети. Проверьте интернет-соединение и попробуйте ещё раз."
+          : msg || "Ошибка авторизации"
+        );
+        setIsLoading(false);
         return;
       }
-      setError("Не удалось создать сессию");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка авторизации");
-    } finally {
-      setIsLoading(false);
     }
+
+    setIsLoading(false);
   };
 
   return (
