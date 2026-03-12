@@ -1,4 +1,5 @@
 import { TelegramClient } from "telegram";
+import { LogLevel } from "telegram/extensions/Logger";
 import { StringSession } from "telegram/sessions";
 
 const apiId = Number(process.env.NEXT_PUBLIC_TELEGRAM_API_ID);
@@ -44,7 +45,7 @@ export function getTelegramClient(sessionString = ""): TelegramClient {
   // Suppress GramJS WARN-level "Not connected" console.error calls that
   // fire during normal WebSocket reconnection and trigger Next.js dev overlay.
   // GramJS auto-reconnects — these errors are transient and informational.
-  clientInstance.setLogLevel("error");
+  clientInstance.setLogLevel(LogLevel.ERROR);
 
   return clientInstance;
 }
