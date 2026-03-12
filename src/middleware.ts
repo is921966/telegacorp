@@ -13,6 +13,12 @@ import type { AdminRole } from "@/types/admin";
  */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // Cron routes use their own CRON_SECRET auth — skip Supabase session check
+  if (pathname.startsWith("/api/admin/cron")) {
+    return NextResponse.next();
+  }
+
   const isApiRoute = pathname.startsWith("/api/admin");
 
   // Create response to be modified
