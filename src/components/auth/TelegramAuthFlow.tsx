@@ -361,7 +361,16 @@ export function TelegramAuthFlow() {
   // ─── visibilitychange: check auth when returning from Telegram ─────
   useEffect(() => {
     const handleVisibilityChange = async () => {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState === "hidden") {
+        // Pause polling while tab is hidden (timers are throttled anyway)
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+        return;
+      }
+
+      // Tab became visible
       if (!isMobileRef.current) return;
 
       const currentStep = useAuthStore.getState().telegramAuthState.step;
@@ -373,25 +382,90 @@ export function TelegramAuthFlow() {
       console.log("[TG Auth] Tab visible, checking mobile QR auth status...");
       setIsChecking(true);
 
-      try {
-        // Ensure connection is alive (may have dropped while backgrounded)
-        const { getConnectedClient } = await import("@/lib/telegram/client");
-        const client = await getConnectedClient();
-        if (!client) {
-          console.warn("[TG Auth] No client after visibility change, restarting...");
-          setIsChecking(false);
-          startMobileQrAuthFlow();
-          return;
-        }
+      // Give the WebSocket time to reconnect (mobile browsers kill WS in background)
+      await new Promise((r) => setTimeout(r, 1500));
 
-        const result = await controller.checkStatus();
-        const done = await handleMobileQrResult(result, client);
-        if (!done) {
-          setIsChecking(false);
+      // Retry reconnection up to 3 times before giving up
+      let client: import("telegram").TelegramClient | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const { getConnectedClient, connectClient, getExistingClient } = await import("@/lib/telegram/client");
+          client = await getConnectedClient();
+          if (!client) {
+            // Try reconnecting the existing client directly (don't reset!)
+            const existing = getExistingClient();
+            if (existing) {
+              console.log(`[TG Auth] Reconnect attempt ${attempt + 1}/3...`);
+              try {
+                await existing.connect();
+                client = existing;
+              } catch {
+                // wait and retry
+                await new Promise((r) => setTimeout(r, 1000));
+              }
+            }
+          }
+          if (client) break;
+        } catch {
+          await new Promise((r) => setTimeout(r, 1000));
         }
-      } catch (err) {
-        console.error("[TG Auth] Visibility check failed:", err);
+      }
+
+      if (!client) {
+        console.warn("[TG Auth] No client after 3 reconnect attempts, restarting flow...");
         setIsChecking(false);
+        startMobileQrAuthFlow();
+        return;
+      }
+
+      // Retry checkStatus up to 4 times (server may need time to propagate confirmation)
+      const MAX_STATUS_CHECKS = 4;
+      const STATUS_CHECK_DELAY = 2000;
+
+      for (let i = 0; i < MAX_STATUS_CHECKS; i++) {
+        try {
+          const result = await controller.checkStatus();
+
+          if (result.status === "success" || result.status === "password_needed") {
+            await handleMobileQrResult(result, client);
+            return; // Done — either authed or showing password screen
+          }
+
+          if (result.status === "pending" && i < MAX_STATUS_CHECKS - 1) {
+            console.log(`[TG Auth] Status pending, retrying (${i + 1}/${MAX_STATUS_CHECKS})...`);
+            await new Promise((r) => setTimeout(r, STATUS_CHECK_DELAY));
+            continue;
+          }
+
+          // Last attempt or error — fall through to resume polling
+          if (result.status === "pending") {
+            setQrUrl(result.qrData.url);
+            setQrExpires(result.qrData.expires);
+          }
+        } catch (err) {
+          console.warn(`[TG Auth] Status check ${i + 1} failed:`, err);
+          if (i < MAX_STATUS_CHECKS - 1) {
+            await new Promise((r) => setTimeout(r, STATUS_CHECK_DELAY));
+          }
+        }
+      }
+
+      // Status checks exhausted without success — user may not have confirmed yet.
+      // Resume background polling and hide spinner.
+      setIsChecking(false);
+      if (!pollingIntervalRef.current && mobileQrControllerRef.current) {
+        pollingIntervalRef.current = setInterval(async () => {
+          const ctrl = mobileQrControllerRef.current;
+          if (!ctrl) return;
+          const step = useAuthStore.getState().telegramAuthState.step;
+          if (step !== "qr") { stopMobilePolling(); return; }
+          try {
+            const r = await ctrl.checkStatus();
+            await handleMobileQrResult(r, client!);
+          } catch (e) {
+            console.warn("[TG Auth] Resumed polling error:", e);
+          }
+        }, MOBILE_QR_POLL_MS);
       }
     };
 
