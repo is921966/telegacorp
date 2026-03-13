@@ -133,6 +133,7 @@ export type {
 export type {
   AdminRole,
   PolicyConfig,
+  AuditLogEntry,
 } from "./types/admin";
 
 export type {

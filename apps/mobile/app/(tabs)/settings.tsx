@@ -1,5 +1,6 @@
 import { View, Text, Pressable, StyleSheet, ScrollView, Alert } from "react-native";
-import { useAuthStore } from "@corp/shared";
+import { useRouter } from "expo-router";
+import { useAuthStore, useAdminRole } from "@corp/shared";
 import { useSession } from "../../components/providers/SessionProvider";
 
 /**
@@ -8,6 +9,8 @@ import { useSession } from "../../components/providers/SessionProvider";
 export default function SettingsScreen() {
   const { telegramUser } = useAuthStore();
   const { signOut } = useSession();
+  const router = useRouter();
+  const { role: adminRole } = useAdminRole(telegramUser?.id);
 
   const handleSignOut = () => {
     Alert.alert(
@@ -67,6 +70,20 @@ export default function SettingsScreen() {
         <SettingsItem label="Версия" value="0.1.0" />
         <SettingsItem label="Expo SDK" value="55" />
       </View>
+
+      {/* Admin panel (role-gated) */}
+      {adminRole && (
+        <Pressable
+          style={styles.adminButton}
+          onPress={() => router.push("/admin")}
+        >
+          <Text style={styles.adminIcon}>🛡️</Text>
+          <Text style={styles.adminText}>Админ-панель</Text>
+          <Text style={styles.adminBadge}>
+            {adminRole === "super_admin" ? "Супер-админ" : "Админ"}
+          </Text>
+        </Pressable>
+      )}
 
       {/* Sign out */}
       <Pressable
@@ -164,6 +181,32 @@ const styles = StyleSheet.create({
   itemValue: {
     fontSize: 16,
     color: "#999",
+  },
+  adminButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1a1a2e",
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    padding: 16,
+    gap: 10,
+  },
+  adminIcon: { fontSize: 20 },
+  adminText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  adminBadge: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    overflow: "hidden",
   },
   signOutButton: {
     backgroundColor: "#fff",
