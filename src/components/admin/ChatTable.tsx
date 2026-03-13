@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Loader2, Users, Shield, ShieldAlert, Hash, Megaphone } from "lucide-react";
+import { Loader2, Users, Shield, ShieldAlert, Hash, Megaphone, Building2 } from "lucide-react";
+import { toast } from "sonner";
 import {
   Table,
   TableBody,
@@ -19,6 +20,35 @@ export function ChatTable() {
   const [chats, setChats] = useState<ManagedChatInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const toggleWorkspace = async (chatId: string, hasTemplate: boolean) => {
+    setTogglingId(chatId);
+    try {
+      const method = hasTemplate ? "DELETE" : "PUT";
+      const res = await fetch(`/api/admin/chats/${chatId}/workspace`, { method });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      // Update local state
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === chatId
+            ? {
+                ...c,
+                templateId: hasTemplate ? null : "default",
+                isCompliant: true,
+              }
+            : c
+        )
+      );
+      toast.success(hasTemplate ? "Убран из рабочей области" : "Добавлен в рабочую область");
+    } catch (err) {
+      console.error("Failed to toggle workspace:", err);
+      toast.error("Не удалось изменить рабочую область");
+    } finally {
+      setTogglingId(null);
+    }
+  };
 
   useEffect(() => {
     async function load() {
@@ -108,11 +138,27 @@ export function ChatTable() {
                       <Users className="h-3 w-3" />
                       {chat.participantCount.toLocaleString()}
                     </span>
-                    {chat.templateId && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-blue-400 border-blue-500/30">
-                        Шаблон
-                      </Badge>
-                    )}
+                    <button
+                      onClick={() => toggleWorkspace(chat.id, !!chat.templateId)}
+                      disabled={togglingId === chat.id}
+                      className="inline-flex items-center"
+                    >
+                      {togglingId === chat.id ? (
+                        <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                      ) : (
+                        <Badge
+                          variant="outline"
+                          className={
+                            chat.templateId
+                              ? "text-[10px] px-1.5 py-0 text-green-400 border-green-500/30 cursor-pointer hover:border-green-400/60"
+                              : "text-[10px] px-1.5 py-0 text-muted-foreground border-border cursor-pointer hover:border-muted-foreground/60"
+                          }
+                        >
+                          <Building2 className="h-2.5 w-2.5 mr-0.5" />
+                          {chat.templateId ? "Рабочая" : "Не рабочая"}
+                        </Badge>
+                      )}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -129,6 +175,7 @@ export function ChatTable() {
               <TableHead>Чат</TableHead>
               <TableHead>Тип</TableHead>
               <TableHead className="text-right">Участники</TableHead>
+              <TableHead>Рабочая</TableHead>
               <TableHead>Шаблон</TableHead>
               <TableHead>Статус</TableHead>
             </TableRow>
@@ -156,6 +203,28 @@ export function ChatTable() {
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {chat.participantCount.toLocaleString()}
+                </TableCell>
+                <TableCell>
+                  <button
+                    onClick={() => toggleWorkspace(chat.id, !!chat.templateId)}
+                    disabled={togglingId === chat.id}
+                  >
+                    {togglingId === chat.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className={
+                          chat.templateId
+                            ? "text-xs text-green-400 border-green-500/30 cursor-pointer hover:border-green-400/60"
+                            : "text-xs text-muted-foreground border-border cursor-pointer hover:border-muted-foreground/60"
+                        }
+                      >
+                        <Building2 className="h-3 w-3 mr-1" />
+                        {chat.templateId ? "Да" : "Нет"}
+                      </Badge>
+                    )}
+                  </button>
                 </TableCell>
                 <TableCell>
                   {chat.templateId ? (

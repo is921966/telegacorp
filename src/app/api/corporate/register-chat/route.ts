@@ -5,9 +5,8 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import type { Database } from "@/types/database";
 
 /**
- * POST /api/corporate/register-chat
- * Binds a newly created chat to the default corporate policy template.
- * This makes it appear in the "work" workspace via managedChatIds.
+ * POST /api/corporate/register-chat — add chat to workspace
+ * DELETE /api/corporate/register-chat — remove chat from workspace
  *
  * Auth: cookie-based Supabase session (same as workspace-time).
  */
@@ -99,6 +98,48 @@ export async function POST(request: NextRequest) {
     console.error("[register-chat] Failed:", err);
     return NextResponse.json(
       { error: "Failed to register chat" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const telegramId = await getAuthUser();
+  if (!telegramId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const chatId = String(body.chatId || "").trim();
+
+    if (!chatId) {
+      return NextResponse.json(
+        { error: "chatId is required" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = createServerSupabase();
+
+    const { error: deleteError } = await supabase
+      .from("chat_templates")
+      .delete()
+      .eq("chat_id", chatId);
+
+    if (deleteError) {
+      console.error("[register-chat] Delete error:", deleteError);
+      return NextResponse.json(
+        { error: "Failed to unregister chat" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("[register-chat] Delete failed:", err);
+    return NextResponse.json(
+      { error: "Failed to unregister chat" },
       { status: 500 }
     );
   }

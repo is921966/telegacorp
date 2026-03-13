@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useUIStore } from "@/store/ui";
 import { useChatsStore } from "@/store/chats";
+import { useCorporateStore } from "@/store/corporate";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +37,7 @@ import {
   Loader2,
   MoreVertical,
   Trash2,
+  Building2,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -154,6 +156,10 @@ export function GroupInfo() {
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  const [isTogglingWorkspace, setIsTogglingWorkspace] = useState(false);
+  const isManagedChat = useCorporateStore((s) => s.isManagedChat);
+  const loadConfig = useCorporateStore((s) => s.loadConfig);
 
   const [photoUrl, setPhotoUrl] = useState<string | undefined>();
 
@@ -294,6 +300,54 @@ export function GroupInfo() {
     } catch (err) {
       console.error("Failed to remove member:", err);
       toast.error("Не удалось удалить участника");
+    }
+  };
+
+  const isInWorkspace = selectedChatId ? isManagedChat(selectedChatId) : false;
+  const isSupergroup = dialog?.type === "channel" || dialog?.type === "group";
+
+  const handleAddToWorkspace = async () => {
+    if (!client || !selectedChatId || isTogglingWorkspace) return;
+    setIsTogglingWorkspace(true);
+    try {
+      const { promoteBotAdmin } = await import("@/lib/telegram/groups");
+      const botInfo = await fetch("/api/bot-info").then((r) => r.json());
+      if (botInfo.username) {
+        await promoteBotAdmin(client, selectedChatId, botInfo.username);
+      }
+      const res = await fetch("/api/corporate/register-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: selectedChatId }),
+      });
+      if (!res.ok) throw new Error("Failed to register");
+      await loadConfig();
+      toast.success("Чат добавлен в рабочую область");
+    } catch (err) {
+      console.error("Failed to add to workspace:", err);
+      toast.error("Не удалось добавить в рабочую область");
+    } finally {
+      setIsTogglingWorkspace(false);
+    }
+  };
+
+  const handleRemoveFromWorkspace = async () => {
+    if (!selectedChatId || isTogglingWorkspace) return;
+    setIsTogglingWorkspace(true);
+    try {
+      const res = await fetch("/api/corporate/register-chat", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chatId: selectedChatId }),
+      });
+      if (!res.ok) throw new Error("Failed to unregister");
+      await loadConfig();
+      toast.success("Чат убран из рабочей области");
+    } catch (err) {
+      console.error("Failed to remove from workspace:", err);
+      toast.error("Не удалось убрать из рабочей области");
+    } finally {
+      setIsTogglingWorkspace(false);
     }
   };
 
@@ -454,6 +508,30 @@ export function GroupInfo() {
             </div>
             <Copy className="h-4 w-4 text-muted-foreground shrink-0" />
           </button>
+
+          {/* Workspace toggle */}
+          {isSupergroup && (
+            <>
+              <Separator />
+              <button
+                className={cn(
+                  "w-full flex items-center gap-3 px-4 py-3 transition-colors text-left",
+                  isTogglingWorkspace ? "opacity-50 pointer-events-none" : "hover:bg-accent/50"
+                )}
+                onClick={isInWorkspace ? handleRemoveFromWorkspace : handleAddToWorkspace}
+                disabled={isTogglingWorkspace}
+              >
+                {isTogglingWorkspace ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+                ) : (
+                  <Building2 className={cn("h-5 w-5 shrink-0", isInWorkspace ? "text-green-500" : "text-muted-foreground")} />
+                )}
+                <span className={cn("text-sm", isInWorkspace ? "text-green-500" : "text-muted-foreground")}>
+                  {isInWorkspace ? "Убрать из рабочей области" : "Добавить в рабочую область"}
+                </span>
+              </button>
+            </>
+          )}
 
           {/* Members */}
           <Separator />
