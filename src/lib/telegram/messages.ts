@@ -174,18 +174,38 @@ function extractSenderName(message: Api.Message): string | undefined {
 /** Resolve entity from GramJS cache with fallback probe */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function resolveEntity(client: TelegramClient, chatId: string): Promise<any> {
+  // 1. Try cache first (instant, no API call)
   try {
     return await client.getInputEntity(chatId);
   } catch {
-    try {
-      const probe = await client.getMessages(chatId, { limit: 1 });
-      if (probe && probe.length >= 0) return chatId;
-    } catch {
-      throw new Error(
-        `Entity not found for chat ${chatId}. ` +
-        `Dialogs may not have loaded yet — will retry automatically.`
-      );
-    }
+    // not in cache
+  }
+
+  // 2. Try getMessages probe (works for some chats even without entity cache)
+  try {
+    const probe = await client.getMessages(chatId, { limit: 1 });
+    if (probe && probe.length >= 0) return chatId;
+  } catch {
+    // probe failed
+  }
+
+  // 3. Force-resolve entity via API call (fetches from Telegram servers)
+  try {
+    const entity = await client.getEntity(chatId);
+    if (entity) return entity;
+  } catch {
+    // getEntity failed
+  }
+
+  // 4. Last resort: load a batch of dialogs to populate entity cache, then retry
+  try {
+    await client.getDialogs({ limit: 50 });
+    return await client.getInputEntity(chatId);
+  } catch {
+    throw new Error(
+      `Entity not found for chat ${chatId}. ` +
+      `Dialogs may not have loaded yet — will retry automatically.`
+    );
   }
 }
 

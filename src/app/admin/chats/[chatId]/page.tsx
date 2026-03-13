@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   Settings,
   ScrollText,
+  BookOpen,
   ArrowLeft,
   Link as LinkIcon,
   Hash,
@@ -120,8 +121,13 @@ export default function ChatDetailPage({
         </div>
       </div>
 
+      {/* Drift details */}
+      {!chat.isCompliant && chat.driftDetails && Object.keys(chat.driftDetails).length > 0 && (
+        <DriftAlert details={chat.driftDetails} />
+      )}
+
       {/* Navigation cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <NavCard
           href={`/admin/chats/${chatId}/members`}
           icon={<Users className="h-5 w-5" />}
@@ -139,6 +145,12 @@ export default function ChatDetailPage({
           icon={<ScrollText className="h-5 w-5" />}
           title="Журнал событий"
           description="Admin log (48ч)"
+        />
+        <NavCard
+          href={`/admin/archive?chatId=${chatId}`}
+          icon={<BookOpen className="h-5 w-5" />}
+          title="История"
+          description="Архив сообщений"
         />
       </div>
 
@@ -252,6 +264,66 @@ function InfoRow({
     <div className="flex items-center justify-between text-sm">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-mono text-xs">{value}</span>
+    </div>
+  );
+}
+
+const DRIFT_LABELS: Record<string, string> = {
+  slow_mode_delay: "Slow Mode",
+  has_protected_content: "Защита контента",
+  has_aggressive_anti_spam_enabled: "Anti-spam",
+  has_hidden_members: "Скрытые участники",
+  join_by_request: "Одобрение заявок",
+  message_auto_delete_time: "Авто-удаление",
+  "permission.can_send_messages": "Отправка сообщений",
+  "permission.can_send_media": "Отправка медиа",
+  "permission.can_send_polls": "Создание опросов",
+  "permission.can_send_other": "Стикеры и GIF",
+  "permission.can_add_web_page_previews": "Превью ссылок",
+  "permission.can_change_info": "Изменение инфо группы",
+  "permission.can_invite_users": "Приглашение участников",
+  "permission.can_pin_messages": "Закрепление сообщений",
+};
+
+function isPermissionKey(key: string): boolean {
+  return key.startsWith("permission.");
+}
+
+function formatDriftValue(key: string, value: unknown): string {
+  if (typeof value === "boolean") {
+    if (isPermissionKey(key)) return value ? "Разрешено" : "Запрещено";
+    return value ? "Включено" : "Выключено";
+  }
+  if (key === "slow_mode_delay") return value === 0 ? "Выкл" : `${value} сек`;
+  if (key === "message_auto_delete_time") return value === 0 ? "Выкл" : `${value} сек`;
+  return String(value);
+}
+
+function DriftAlert({ details }: { details: Record<string, { expected: unknown; actual: unknown }> }) {
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <ShieldAlert className="h-4 w-4 text-amber-400" />
+        <span className="text-sm font-medium text-amber-400">
+          Настройки чата не совпадают с шаблоном
+        </span>
+      </div>
+      <div className="space-y-3">
+        {Object.entries(details).map(([key, { expected, actual }]) => (
+          <div key={key} className="text-sm">
+            <p className="text-foreground font-medium text-xs mb-0.5">
+              {DRIFT_LABELS[key] || key}
+            </p>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-green-400/70">шаблон:</span>
+              <span className="text-green-400 font-medium">{formatDriftValue(key, expected)}</span>
+              <span className="text-muted-foreground">→</span>
+              <span className="text-red-400/70">сейчас:</span>
+              <span className="text-red-400 font-medium">{formatDriftValue(key, actual)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

@@ -100,26 +100,44 @@ export class ChatManagementService {
     // Get chat-template mappings to know compliance status
     const { data: templates } = await supabase
       .from("chat_templates")
-      .select("chat_id, template_id, is_compliant");
+      .select("chat_id, template_id, is_compliant, drift_details");
 
     const templateMap = new Map(
       (templates ?? []).map((t) => [t.chat_id, t])
     );
 
+    // Get archive states to know which chats have archiving enabled
+    const { data: archiveStates } = await supabase
+      .from("chat_archive_state")
+      .select("chat_id, is_enabled");
+
+    const archiveMap = new Map(
+      (archiveStates ?? []).map((s) => [String(s.chat_id), s.is_enabled])
+    );
+
     // Collect unique chat IDs from multiple sources:
     // 1. monitored_chats table (already registered)
-    // 2. Bot API getUpdates (recently active chats)
+    // 2. chat_templates table (bound to policy template = workspace chat)
+    // 3. Bot API getUpdates (recently active chats)
     const chatIds = new Set<number>();
 
     // Source 1: Database — monitored chats
     const { data: monitored } = await supabase
       .from("monitored_chats")
-      .select("chat_id");
+      .select("chat_id, title");
+
+    const monitoredTitleMap = new Map<string, string>();
     for (const m of monitored ?? []) {
       chatIds.add(Number(m.chat_id));
+      if (m.title) monitoredTitleMap.set(String(m.chat_id), m.title);
     }
 
-    // Source 2: Bot API getUpdates — discover recent chats
+    // Source 2: Database — chats bound to templates (workspace chats)
+    for (const [chatId] of templateMap) {
+      chatIds.add(Number(chatId));
+    }
+
+    // Source 3: Bot API getUpdates — discover recent chats
     try {
       interface BotUpdate {
         message?: { chat: { id: number } };
@@ -180,9 +198,11 @@ export class ChatManagementService {
           user_id: botMe.id,
         });
 
-        if (!["administrator", "creator"].includes(member.status)) continue;
-
+        const isAdmin = ["administrator", "creator"].includes(member.status);
         const tpl = templateMap.get(chat.id.toString());
+
+        // Show chat if bot is admin OR chat is in workspace (basic groups can't promote bot)
+        if (!isAdmin && !tpl) continue;
 
         chats.push({
           id: chat.id.toString(),
@@ -192,9 +212,28 @@ export class ChatManagementService {
           about: null,
           templateId: tpl?.template_id ?? null,
           isCompliant: tpl?.is_compliant ?? true,
+          archiveEnabled: archiveMap.get(chat.id.toString()) ?? false,
+          driftDetails: (tpl?.drift_details as Record<string, { expected: unknown; actual: unknown }>) ?? null,
         });
-      } catch {
-        // Bot not in chat or chat deleted — skip
+      } catch (err) {
+        // Bot not in chat — but if chat is in workspace, show with minimal info
+        const tpl = templateMap.get(chatId.toString());
+        if (tpl) {
+          console.warn(`[listManagedChats] Bot not in chat ${chatId}, showing from DB`);
+          chats.push({
+            id: chatId.toString(),
+            title: monitoredTitleMap.get(chatId.toString()) || `Chat ${chatId}`,
+            type: "supergroup",
+            participantCount: 0,
+            about: null,
+            templateId: tpl.template_id ?? null,
+            isCompliant: tpl.is_compliant ?? true,
+            archiveEnabled: archiveMap.get(chatId.toString()) ?? false,
+            driftDetails: (tpl.drift_details as Record<string, { expected: unknown; actual: unknown }>) ?? null,
+          });
+        } else {
+          console.warn(`[listManagedChats] Skipping chat ${chatId}:`, err instanceof Error ? err.message : err);
+        }
         continue;
       }
     }
@@ -219,7 +258,7 @@ export class ChatManagementService {
     const supabase = createServerSupabase();
     const { data: tpl } = await supabase
       .from("chat_templates")
-      .select("template_id, is_compliant")
+      .select("template_id, is_compliant, drift_details")
       .eq("chat_id", chatId)
       .single();
 
@@ -268,6 +307,13 @@ export class ChatManagementService {
         }
       : fromBannedRights(undefined);
 
+    // Check archive state for this chat
+    const { data: archState } = await supabase
+      .from("chat_archive_state")
+      .select("is_enabled")
+      .eq("chat_id", parseInt(chatId, 10))
+      .single();
+
     return {
       chat: {
         id: chatData.id.toString(),
@@ -277,6 +323,8 @@ export class ChatManagementService {
         about: chatData.description || null,
         templateId: tpl?.template_id ?? null,
         isCompliant: tpl?.is_compliant ?? true,
+        archiveEnabled: archState?.is_enabled ?? false,
+        driftDetails: (tpl?.drift_details as Record<string, { expected: unknown; actual: unknown }>) ?? null,
       },
       about: chatData.description || null,
       slowModeDelay: chatData.slow_mode_delay ?? 0,

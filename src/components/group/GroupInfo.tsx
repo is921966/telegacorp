@@ -310,15 +310,20 @@ export function GroupInfo() {
     if (!client || !selectedChatId || isTogglingWorkspace) return;
     setIsTogglingWorkspace(true);
     try {
-      const { promoteBotAdmin } = await import("@/lib/telegram/groups");
-      const botInfo = await fetch("/api/bot-info").then((r) => r.json());
-      if (botInfo.username) {
-        await promoteBotAdmin(client, selectedChatId, botInfo.username);
+      // Promote bot to admin — skip gracefully for basic groups (Api.Chat)
+      try {
+        const { promoteBotAdmin } = await import("@/lib/telegram/groups");
+        const botInfo = await fetch("/api/bot-info").then((r) => r.json());
+        if (botInfo.username) {
+          await promoteBotAdmin(client, selectedChatId, botInfo.username);
+        }
+      } catch (promoteErr) {
+        console.warn("Bot promote skipped:", promoteErr);
       }
       const res = await fetch("/api/corporate/register-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatId: selectedChatId }),
+        body: JSON.stringify({ chatId: selectedChatId, title: dialog?.title }),
       });
       if (!res.ok) throw new Error("Failed to register");
       await loadConfig();

@@ -43,6 +43,8 @@ export function useMessages(chatId: string | null, topicId?: number | null) {
 
   // Prevent concurrent initial loads for the same chat
   const loadingChatRef = useRef<string | null>(null);
+  // Track entity-not-found retries per chat to avoid infinite loops
+  const entityRetried = useRef<Set<string>>(new Set());
 
   /**
    * Load messages with different strategies:
@@ -117,6 +119,17 @@ export function useMessages(chatId: string | null, topicId?: number | null) {
           }
         }
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        // Retry once for entity resolution failures (dialogs not loaded yet)
+        if (errMsg.includes("Entity not found") && storeKey && !entityRetried.current.has(storeKey)) {
+          console.warn(`[useMessages] Entity not found for ${storeKey}, retrying in 2s...`);
+          entityRetried.current.add(storeKey);
+          setTimeout(() => {
+            loadingChatRef.current = null;
+            loadMessages(mode, anchorId);
+          }, 2000);
+          return;
+        }
         console.error("Failed to load messages for", storeKey, err);
       } finally {
         setLoading(false);

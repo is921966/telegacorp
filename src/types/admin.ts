@@ -151,6 +151,8 @@ export interface ManagedChatInfo {
   about: string | null;
   templateId: string | null;
   isCompliant: boolean;
+  archiveEnabled: boolean;
+  driftDetails: Record<string, { expected: unknown; actual: unknown }> | null;
 }
 
 export interface ChatParticipantInfo {

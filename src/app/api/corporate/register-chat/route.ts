@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const chatId = String(body.chatId || "").trim();
+    const chatTitle = String(body.title || "").trim() || null;
 
     if (!chatId) {
       return NextResponse.json(
@@ -92,6 +93,22 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Also add to monitored_chats so admin panel discovers the chat
+    await supabase
+      .from("monitored_chats")
+      .upsert(
+        { chat_id: Number(chatId), title: chatTitle, monitoring_enabled: true },
+        { onConflict: "chat_id" }
+      );
+
+    // Enable archive/monitoring for the chat
+    await supabase
+      .from("chat_archive_state")
+      .upsert(
+        { chat_id: Number(chatId), is_enabled: true },
+        { onConflict: "chat_id" }
+      );
 
     return NextResponse.json({ ok: true, templateId: template.id });
   } catch (err) {

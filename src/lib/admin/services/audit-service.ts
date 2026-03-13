@@ -1,7 +1,8 @@
 import { createServerSupabase } from "@/lib/supabase/server";
 import { ChatManagementService } from "./chat-management";
 import { TemplateService } from "./template-service";
-import { withBotClient, botApiCall } from "@/lib/admin/gramjs-client";
+import { withBotClient, botApiCall, userApiCall } from "@/lib/admin/gramjs-client";
+import type { TelegramClient } from "telegram";
 import type { AuditLogEntry, ChatEventEntry } from "@/types/admin";
 import type { Database } from "@/types/database";
 
@@ -159,10 +160,11 @@ export class AuditService {
 
   /**
    * Collect messages from managed chats for archive.
-   * Uses bot client + GramJS GetHistory.
+   * Uses user session (preferred) or bot client + GramJS GetHistory.
    * Runs as a cron job (every 15 minutes).
+   * @param userId — super_admin telegram_id for user session; falls back to bot if absent
    */
-  static async collectMessages(): Promise<{
+  static async collectMessages(userId?: string): Promise<{
     chatsProcessed: number;
     messagesCollected: number;
     errors: string[];
@@ -185,9 +187,30 @@ export class AuditService {
     const errors: string[] = [];
     let chatsProcessed = 0;
 
+    // API call: try user session first, fall back to bot
+    async function callApi<T>(
+      method: string,
+      fn: (client: TelegramClient) => Promise<T>,
+      minInterval?: number,
+    ): Promise<T> {
+      if (userId) {
+        try {
+          return await userApiCall<T>(userId, method, fn, minInterval ?? 1500);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("No active Telegram session")) {
+            console.warn(`[collectMessages] User session unavailable, falling back to bot`);
+          } else {
+            throw err;
+          }
+        }
+      }
+      return botApiCall<T>(method, fn, minInterval);
+    }
+
     for (const state of archiveStates) {
       try {
-        const messages = await botApiCall(
+        const messages = await callApi(
           "messages.GetHistory",
           async (client) => {
             const { Api } = await import("telegram");

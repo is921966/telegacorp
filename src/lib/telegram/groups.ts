@@ -461,13 +461,38 @@ export async function promoteBotAdmin(
 ): Promise<void> {
   await rateLimiter.throttle("promoteBotAdmin", 3000);
 
-  const channel = await client.getEntity(chatId);
-  if (!(channel instanceof Api.Channel)) {
-    throw new Error("promoteBotAdmin only works with supergroups/channels");
-  }
+  const entity = await client.getEntity(chatId);
 
   // Resolve bot entity by username
   const botEntity = await client.getEntity(botUsername);
+
+  if (entity instanceof Api.Chat) {
+    // Basic group — invite bot via messages.AddChatUser (no admin promotion possible)
+    try {
+      await callWithFloodWait(() =>
+        client.invoke(
+          new Api.messages.AddChatUser({
+            chatId: entity.id,
+            userId: botEntity,
+            fwdLimit: 0,
+          })
+        )
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("USER_ALREADY_PARTICIPANT")) {
+        console.warn("promoteBotAdmin: failed to add bot to basic group:", msg);
+      }
+    }
+    return;
+  }
+
+  if (!(entity instanceof Api.Channel)) {
+    console.warn("promoteBotAdmin: skipped — unsupported entity type");
+    return;
+  }
+
+  const channel = entity;
 
   // Invite the bot to the chat
   try {

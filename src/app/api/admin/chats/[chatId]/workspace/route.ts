@@ -46,6 +46,14 @@ export async function PUT(
     return errorResponse("Failed to add to workspace", 500);
   }
 
+  // Also add to monitored_chats so admin panel discovers the chat
+  await supabase
+    .from("monitored_chats")
+    .upsert(
+      { chat_id: Number(chatId), monitoring_enabled: false },
+      { onConflict: "chat_id" }
+    );
+
   return NextResponse.json({ ok: true, templateId: template.id });
 }
 

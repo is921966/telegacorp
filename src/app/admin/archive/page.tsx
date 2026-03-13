@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import {
   Loader2,
   Search,
@@ -15,6 +17,7 @@ import {
   Reply,
   Forward,
   Pencil,
+  ArrowLeft,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -39,6 +42,18 @@ interface ArchivedMessage {
 const PAGE_SIZE = 50;
 
 export default function ArchivePage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+      <ArchivePageInner />
+    </Suspense>
+  );
+}
+
+function ArchivePageInner() {
+  const searchParams = useSearchParams();
+  const initialChatId = searchParams.get("chatId") ?? "";
+  const autoFetched = useRef(false);
+
   const [messages, setMessages] = useState<ArchivedMessage[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -98,6 +113,22 @@ export default function ArchivePage() {
     window.open(`/api/admin/archive/export?${params.toString()}`, "_blank");
   };
 
+  // Sync chatId from URL params
+  useEffect(() => {
+    if (initialChatId && !autoFetched.current) {
+      setChatId(initialChatId);
+      autoFetched.current = true;
+    }
+  }, [initialChatId]);
+
+  // Auto-fetch once chatId is set from URL params
+  useEffect(() => {
+    if (chatId && autoFetched.current && messages.length === 0 && !isLoading) {
+      fetchMessages();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId]);
+
   useEffect(() => {
     if (page > 0) fetchMessages();
   }, [page, fetchMessages]);
@@ -106,6 +137,16 @@ export default function ArchivePage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {/* Back link when coming from chat detail */}
+      {initialChatId && (
+        <Link
+          href={`/admin/chats/${initialChatId}`}
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" /> Назад к чату
+        </Link>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
