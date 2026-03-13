@@ -6,6 +6,8 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { initPlatform, type PlatformStorage } from "@corp/shared";
+import { initMobileMediaCache } from "./media/file-cache";
+import { initMobileNetworkAdapter } from "./network-adapter";
 
 // TODO: Move to app config / environment variables
 const API_BASE_URL = "https://telegram-corp.vercel.app";
@@ -29,4 +31,10 @@ export function initMobilePlatform() {
     telegramApiHash: TELEGRAM_API_HASH,
     deviceModel: "Telegram Corp iOS",
   });
+
+  // Initialize mobile media cache (expo-file-system based)
+  initMobileMediaCache();
+
+  // Initialize network adapter (connection quality detection)
+  initMobileNetworkAdapter();
 }

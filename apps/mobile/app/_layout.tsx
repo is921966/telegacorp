@@ -75,6 +75,14 @@ export default function RootLayout() {
               animation: "slide_from_right",
             }}
           />
+          <Stack.Screen
+            name="search"
+            options={{
+              title: "Поиск",
+              headerBackTitle: "Назад",
+              animation: "slide_from_right",
+            }}
+          />
         </Stack>
       </AuthGuard>
     </SessionProvider>
