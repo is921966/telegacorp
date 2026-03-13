@@ -14,6 +14,7 @@ export interface CreateFlowState {
   photoPreview: string | null;
   isPublic: boolean;
   publicLink: string;
+  isWorkspace: boolean;
   isCreating: boolean;
   error: string | null;
 }
@@ -70,6 +71,7 @@ interface UIStore {
   setCreateFlowPhoto: (file: File | null, preview: string | null) => void;
   setCreateFlowPublic: (isPublic: boolean) => void;
   setCreateFlowLink: (link: string) => void;
+  setCreateFlowWorkspace: (isWorkspace: boolean) => void;
   setCreateFlowCreating: (creating: boolean) => void;
   setCreateFlowError: (error: string | null) => void;
   reset: () => void;
@@ -202,6 +204,7 @@ export const useUIStore = create<UIStore>((set) => ({
         photoPreview: null,
         isPublic: false,
         publicLink: "",
+        isWorkspace: true,
         isCreating: false,
         error: null,
       },
@@ -220,6 +223,7 @@ export const useUIStore = create<UIStore>((set) => ({
         photoPreview: null,
         isPublic: false,
         publicLink: "",
+        isWorkspace: true,
         isCreating: false,
         error: null,
       },
@@ -285,6 +289,12 @@ export const useUIStore = create<UIStore>((set) => ({
     set((state) => {
       if (!state.createFlow) return state;
       return { createFlow: { ...state.createFlow, publicLink } };
+    }),
+
+  setCreateFlowWorkspace: (isWorkspace) =>
+    set((state) => {
+      if (!state.createFlow) return state;
+      return { createFlow: { ...state.createFlow, isWorkspace } };
     }),
 
   setCreateFlowCreating: (isCreating) =>

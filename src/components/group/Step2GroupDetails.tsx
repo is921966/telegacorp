@@ -3,10 +3,12 @@
 import { useRef, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useUIStore } from "@/store/ui";
 import { useChatsStore } from "@/store/chats";
+import { useCorporateStore } from "@/store/corporate";
 import { useLazyAvatar } from "@/hooks/useLazyAvatar";
 import { AvatarPicker } from "@/components/shared/AvatarPicker";
 import { cn } from "@/lib/utils";
@@ -58,14 +60,17 @@ export function Step2GroupDetails() {
   const setCreateFlowTitle = useUIStore((s) => s.setCreateFlowTitle);
   const setCreateFlowPhoto = useUIStore((s) => s.setCreateFlowPhoto);
   const setCreateFlowCreating = useUIStore((s) => s.setCreateFlowCreating);
+  const setCreateFlowWorkspace = useUIStore((s) => s.setCreateFlowWorkspace);
   const closeCreateFlow = useUIStore((s) => s.closeCreateFlow);
   const selectChat = useUIStore((s) => s.selectChat);
+  const loadConfig = useCorporateStore((s) => s.loadConfig);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const title = createFlow?.title || "";
   const photoPreview = createFlow?.photoPreview || null;
   const selectedMembers = createFlow?.selectedMembers || [];
   const isCreating = createFlow?.isCreating || false;
+  const isWorkspace = createFlow?.isWorkspace ?? true;
 
   // Auto-focus the title input
   useEffect(() => {
@@ -81,35 +86,100 @@ export function Step2GroupDetails() {
       const client = await getConnectedClient();
       if (!client) throw new Error("Нет подключения к Telegram");
 
-      const { createGroup, setChatPhoto } = await import(
-        "@/lib/telegram/groups"
-      );
-
-      // Create the group
+      let chatId: string;
       const userIds = selectedMembers.map((m) => m.id);
-      const chatId = await createGroup(client, title.trim(), userIds);
 
-      // Upload photo if selected
-      if (createFlow?.photoFile) {
-        try {
-          await setChatPhoto(client, chatId, createFlow.photoFile);
-        } catch (err) {
-          console.warn("Failed to set group photo:", err);
+      if (isWorkspace) {
+        // Work group: create supergroup (supports all corporate features)
+        const { createSupergroup, inviteToChannel, setChatPhoto, promoteBotAdmin } =
+          await import("@/lib/telegram/groups");
+
+        chatId = await createSupergroup(client, title.trim(), "");
+
+        // Invite selected members
+        if (userIds.length > 0) {
+          try {
+            await inviteToChannel(client, chatId, userIds);
+          } catch (err) {
+            console.warn("Failed to invite some members:", err);
+          }
         }
-      }
 
-      // Add the new chat to dialog store so it renders immediately
-      const newDialog: TelegramDialog = {
-        id: chatId,
-        type: "group",
-        title: title.trim(),
-        unreadCount: 0,
-        unreadMentionsCount: 0,
-        isPinned: false,
-        folderId: 0,
-        apiOrder: 0,
-      };
-      useChatsStore.getState().syncDialogs([newDialog]);
+        // Upload photo if selected
+        if (createFlow?.photoFile) {
+          try {
+            await setChatPhoto(client, chatId, createFlow.photoFile);
+          } catch (err) {
+            console.warn("Failed to set group photo:", err);
+          }
+        }
+
+        // Add corporate bot and promote to admin
+        try {
+          const botInfo = await fetch("/api/bot-info").then((r) => r.json());
+          if (botInfo.username) {
+            await promoteBotAdmin(client, chatId, botInfo.username);
+          }
+        } catch (err) {
+          console.warn("Failed to add corporate bot:", err);
+        }
+
+        // Register in corporate system (bind to default template)
+        try {
+          await fetch("/api/corporate/register-chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chatId }),
+          });
+        } catch (err) {
+          console.warn("Failed to register chat:", err);
+        }
+
+        // Add the new chat to dialog store
+        const newDialog: TelegramDialog = {
+          id: chatId,
+          type: "group",
+          title: title.trim(),
+          unreadCount: 0,
+          unreadMentionsCount: 0,
+          isPinned: false,
+          folderId: 0,
+          apiOrder: 0,
+        };
+        useChatsStore.getState().syncDialogs([newDialog]);
+
+        // Refresh corporate config so the new chat appears in "work" workspace
+        loadConfig();
+      } else {
+        // Personal group: regular group creation
+        const { createGroup, setChatPhoto } = await import(
+          "@/lib/telegram/groups"
+        );
+
+        chatId = await createGroup(client, title.trim(), userIds);
+
+        // Upload photo if selected
+        if (createFlow?.photoFile) {
+          try {
+            await setChatPhoto(client, chatId, createFlow.photoFile);
+          } catch (err) {
+            console.warn("Failed to set group photo:", err);
+          }
+        }
+
+        // Add the new chat to dialog store
+        const newDialog: TelegramDialog = {
+          id: chatId,
+          type: "group",
+          title: title.trim(),
+          unreadCount: 0,
+          unreadMentionsCount: 0,
+          isPinned: false,
+          folderId: 0,
+          apiOrder: 0,
+        };
+        useChatsStore.getState().syncDialogs([newDialog]);
+      }
 
       toast.success("Группа создана");
       closeCreateFlow();
@@ -182,6 +252,20 @@ export function Step2GroupDetails() {
             maxLength={255}
             className="text-center text-lg h-11"
           />
+
+          {/* Workspace toggle */}
+          <div
+            className="flex items-center gap-3 w-full cursor-pointer select-none"
+            onClick={() => setCreateFlowWorkspace(!isWorkspace)}
+          >
+            <Checkbox
+              checked={isWorkspace}
+              onCheckedChange={(checked) => setCreateFlowWorkspace(!!checked)}
+            />
+            <span className="text-sm text-foreground">
+              Рабочая область
+            </span>
+          </div>
         </div>
 
         {/* Selected members preview */}

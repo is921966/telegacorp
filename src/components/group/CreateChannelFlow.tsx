@@ -5,9 +5,11 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { VisuallyHidden } from "radix-ui";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useUIStore } from "@/store/ui";
 import { useChatsStore } from "@/store/chats";
+import { useCorporateStore } from "@/store/corporate";
 import { AvatarPicker } from "@/components/shared/AvatarPicker";
 import { Step1SelectMembers } from "./Step1SelectMembers";
 import { ArrowLeft, Loader2 } from "lucide-react";
@@ -21,11 +23,13 @@ function Step1ChannelDetails() {
   const setCreateFlowTitle = useUIStore((s) => s.setCreateFlowTitle);
   const setCreateFlowAbout = useUIStore((s) => s.setCreateFlowAbout);
   const setCreateFlowPhoto = useUIStore((s) => s.setCreateFlowPhoto);
+  const setCreateFlowWorkspace = useUIStore((s) => s.setCreateFlowWorkspace);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const title = createFlow?.title || "";
   const about = createFlow?.about || "";
   const photoPreview = createFlow?.photoPreview || null;
+  const isWorkspace = createFlow?.isWorkspace ?? true;
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 100);
@@ -91,6 +95,20 @@ function Step1ChannelDetails() {
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none min-h-[80px] focus:outline-none focus:ring-2 focus:ring-ring"
             rows={3}
           />
+
+          {/* Workspace toggle */}
+          <div
+            className="flex items-center gap-3 w-full cursor-pointer select-none"
+            onClick={() => setCreateFlowWorkspace(!isWorkspace)}
+          >
+            <Checkbox
+              checked={isWorkspace}
+              onCheckedChange={(checked) => setCreateFlowWorkspace(!!checked)}
+            />
+            <span className="text-sm text-foreground">
+              Рабочая область
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -218,8 +236,10 @@ function Step3CreateChannel() {
   const setCreateFlowCreating = useUIStore((s) => s.setCreateFlowCreating);
   const closeCreateFlow = useUIStore((s) => s.closeCreateFlow);
   const selectChat = useUIStore((s) => s.selectChat);
+  const loadConfig = useCorporateStore((s) => s.loadConfig);
 
   const isCreating = createFlow?.isCreating || false;
+  const isWorkspace = createFlow?.isWorkspace ?? true;
 
   const handleCreate = async () => {
     if (!createFlow || isCreating) return;
@@ -276,6 +296,32 @@ function Step3CreateChannel() {
         }
       }
 
+      // Workspace: add corporate bot as admin and register in corporate system
+      if (isWorkspace) {
+        const { promoteBotAdmin } = await import("@/lib/telegram/groups");
+
+        // Add corporate bot and promote to admin
+        try {
+          const botInfo = await fetch("/api/bot-info").then((r) => r.json());
+          if (botInfo.username) {
+            await promoteBotAdmin(client, channelId, botInfo.username);
+          }
+        } catch (err) {
+          console.warn("Failed to add corporate bot:", err);
+        }
+
+        // Register in corporate system (bind to default template)
+        try {
+          await fetch("/api/corporate/register-chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chatId: channelId }),
+          });
+        } catch (err) {
+          console.warn("Failed to register channel:", err);
+        }
+      }
+
       // Add the new channel to dialog store so it renders immediately
       const newDialog: TelegramDialog = {
         id: channelId,
@@ -288,6 +334,11 @@ function Step3CreateChannel() {
         apiOrder: 0,
       };
       useChatsStore.getState().syncDialogs([newDialog]);
+
+      // Refresh corporate config so the new channel appears in "work" workspace
+      if (isWorkspace) {
+        loadConfig();
+      }
 
       toast.success("Канал создан");
       closeCreateFlow();

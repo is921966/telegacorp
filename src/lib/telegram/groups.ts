@@ -450,6 +450,65 @@ export async function setChannelUsername(
 }
 
 /**
+ * Invite the corporate bot to a supergroup/channel and promote it to admin.
+ * This enables corporate management tools (template policies, monitoring, etc.)
+ * Must be called from a user session where the caller is an admin of the chat.
+ */
+export async function promoteBotAdmin(
+  client: TelegramClient,
+  chatId: string,
+  botUsername: string
+): Promise<void> {
+  await rateLimiter.throttle("promoteBotAdmin", 3000);
+
+  const channel = await client.getEntity(chatId);
+  if (!(channel instanceof Api.Channel)) {
+    throw new Error("promoteBotAdmin only works with supergroups/channels");
+  }
+
+  // Resolve bot entity by username
+  const botEntity = await client.getEntity(botUsername);
+
+  // Invite the bot to the chat
+  try {
+    await callWithFloodWait(() =>
+      client.invoke(
+        new Api.channels.InviteToChannel({
+          channel,
+          users: [botEntity],
+        })
+      )
+    );
+  } catch (err) {
+    // Bot might already be a member — ignore USER_ALREADY_PARTICIPANT
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("USER_ALREADY_PARTICIPANT")) throw err;
+  }
+
+  // Promote bot to admin with management rights
+  await callWithFloodWait(() =>
+    client.invoke(
+      new Api.channels.EditAdmin({
+        channel,
+        userId: botEntity,
+        adminRights: new Api.ChatAdminRights({
+          changeInfo: true,
+          deleteMessages: true,
+          banUsers: true,
+          inviteUsers: true,
+          pinMessages: true,
+          manageCall: true,
+          addAdmins: false,
+          postMessages: channel.broadcast ? true : undefined,
+          editMessages: channel.broadcast ? true : undefined,
+        }),
+        rank: "Corp Bot",
+      })
+    )
+  );
+}
+
+/**
  * Get the full info for a chat (including about/description).
  */
 export async function getChatFullInfo(
