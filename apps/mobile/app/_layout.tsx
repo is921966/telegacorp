@@ -1,33 +1,37 @@
 import { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useColorScheme, View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { initMobilePlatform } from "../lib/platform-init";
 import { SessionProvider, useSession } from "../components/providers/SessionProvider";
+import { ThemeProvider, useTheme } from "../components/providers/ThemeProvider";
+import { ErrorBoundary } from "../components/ErrorBoundary";
+import { OfflineBanner } from "../components/OfflineBanner";
+import { useReconnect } from "../hooks/useReconnect";
 
 // Initialize @corp/shared platform layer (must happen before any shared imports)
 initMobilePlatform();
 
 /**
  * Auth guard — redirects based on authentication state.
- * - Not authenticated → /(auth)/login
- * - Authenticated → / (main app)
+ * Also reconnects GramJS when app returns from background.
  */
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isRestoring, isTelegramReady } = useSession();
   const segments = useSegments();
   const router = useRouter();
 
+  // Auto-reconnect GramJS on foreground
+  useReconnect();
+
   useEffect(() => {
-    if (isRestoring) return; // Still loading
+    if (isRestoring) return;
 
     const inAuthGroup = segments[0] === "(auth)";
 
     if (!isTelegramReady && !inAuthGroup) {
-      // Not authenticated — redirect to login
       router.replace("/(auth)/login");
     } else if (isTelegramReady && inAuthGroup) {
-      // Already authenticated — redirect to main
       router.replace("/");
     }
   }, [isRestoring, isTelegramReady, segments]);
@@ -43,19 +47,21 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
+/**
+ * Inner layout — uses theme context for header styling.
+ */
+function InnerLayout() {
+  const { isDark, colors } = useTheme();
 
   return (
-    <SessionProvider>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
+    <>
+      <StatusBar style={isDark ? "light" : "dark"} />
+      <OfflineBanner />
       <AuthGuard>
         <Stack
           screenOptions={{
-            headerStyle: {
-              backgroundColor: colorScheme === "dark" ? "#1a1a2e" : "#ffffff",
-            },
-            headerTintColor: colorScheme === "dark" ? "#ffffff" : "#000000",
+            headerStyle: { backgroundColor: colors.surface },
+            headerTintColor: colors.text,
           }}
         >
           <Stack.Screen name="index" options={{ title: "Telegram Corp" }} />
@@ -89,7 +95,19 @@ export default function RootLayout() {
           />
         </Stack>
       </AuthGuard>
-    </SessionProvider>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ErrorBoundary fallbackTitle="Ошибка приложения">
+      <ThemeProvider>
+        <SessionProvider>
+          <InnerLayout />
+        </SessionProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 
