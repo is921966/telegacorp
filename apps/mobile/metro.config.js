@@ -9,6 +9,7 @@ const path = require("path");
 
 const projectRoot = __dirname;
 const monorepoRoot = path.resolve(projectRoot, "../..");
+const emptyShim = path.resolve(projectRoot, "shims/empty.js");
 
 const config = getDefaultConfig(projectRoot);
 
@@ -21,19 +22,73 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, "node_modules"),
 ];
 
-// 3. Node.js polyfill mappings for GramJS
-config.resolver.extraNodeModules = {
-  buffer: require.resolve("buffer/"),
-  stream: require.resolve("readable-stream"),
-  crypto: require.resolve("react-native-quick-crypto"),
-  net: require.resolve("./shims/empty.js"),
-  tls: require.resolve("./shims/empty.js"),
-  fs: require.resolve("./shims/empty.js"),
-  os: require.resolve("./shims/empty.js"),
-  path: require.resolve("./shims/empty.js"),
+// 3. Node.js polyfill/shim mappings for GramJS and other native-only modules
+const nodeShims = {
+  fs: emptyShim,
+  net: emptyShim,
+  tls: emptyShim,
+  os: emptyShim,
+  path: emptyShim,
+  assert: emptyShim,
+  "graceful-fs": emptyShim,
+  "node-localstorage": emptyShim,
+  "write-file-atomic": emptyShim,
+  util: path.resolve(projectRoot, "shims/util.js"),
+  constants: emptyShim,
+  child_process: emptyShim,
+  http: emptyShim,
+  https: emptyShim,
+  zlib: emptyShim,
+  dns: emptyShim,
+  dgram: emptyShim,
+  cluster: emptyShim,
+  module: emptyShim,
+  readline: emptyShim,
+  repl: emptyShim,
+  tty: emptyShim,
+  vm: emptyShim,
+  worker_threads: emptyShim,
+  perf_hooks: emptyShim,
+  async_hooks: emptyShim,
 };
 
-// 4. Ensure .cjs files are resolved
+const nodePolyfills = {
+  buffer: require.resolve("buffer/"),
+  stream: require.resolve("readable-stream"),
+  crypto: require.resolve("./shims/crypto.js"),
+};
+
+config.resolver.extraNodeModules = {
+  ...nodeShims,
+  ...nodePolyfills,
+};
+
+// 4. Override resolver to intercept Node.js-only modules that exist in node_modules
+// (extraNodeModules is a fallback, not an override — this ensures shims take priority)
+const originalResolveRequest = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  // Force shim for Node.js-only modules
+  if (nodeShims[moduleName]) {
+    return {
+      filePath: nodeShims[moduleName],
+      type: "sourceFile",
+    };
+  }
+  // Force polyfills for modules with RN replacements
+  if (nodePolyfills[moduleName]) {
+    return {
+      filePath: nodePolyfills[moduleName],
+      type: "sourceFile",
+    };
+  }
+  // Default resolution
+  if (originalResolveRequest) {
+    return originalResolveRequest(context, moduleName, platform);
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
+// 5. Ensure .cjs files are resolved
 config.resolver.sourceExts = [...(config.resolver.sourceExts || []), "cjs"];
 
 module.exports = config;
