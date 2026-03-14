@@ -1,3 +1,6 @@
+// Polyfills MUST be imported first (before any other module)
+import "../lib/polyfills";
+
 import { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
