@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
 import * as SecureStore from "expo-secure-store";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   useAuthStore,
   initSupabaseClient,
@@ -14,9 +15,8 @@ import {
 } from "@corp/shared";
 
 // ─── Constants ────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://idmrxfuasotzbnkpdbme.supabase.co";
-const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkbXJ4ZnVhc290emJua3BkYm1lIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM2MTM2MjYsImV4cCI6MjA1OTE4OTYyNn0.uyPz-ztVDcKb4xfFi84S4_2F91g_nPIqgzeSbGWkFmc";
+const SUPABASE_URL = "https://jibfrtmviylkoepxgmcl.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_QNGekCAWIQ5rYV0SuhM4oQ_Wt5e73LV";
 const SESSION_ENCRYPTION_KEY = "tgcorp-mobile-session-v1";
 const SECURE_STORE_SESSION_KEY = "tg_session_backup";
 
@@ -66,12 +66,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     async function init() {
       try {
-        // 1. Initialize Supabase client
+        // 1. Initialize Supabase client with RN-specific config
         initSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
           auth: {
+            storage: AsyncStorage,
             autoRefreshToken: true,
             persistSession: true,
-            // AsyncStorage handled by @supabase/supabase-js RN adapter
+            detectSessionInUrl: false, // no URL session detection in React Native
           },
         });
 
@@ -96,7 +97,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (err) {
-        console.error("[Session] Init error:", err);
+        // Network errors are expected when offline or behind VPN.
+        // App still functions — Telegram auth works independently.
+        console.warn("[Session] Supabase init failed (offline?):", (err as Error).message);
+
+        // Try restoring Telegram from local SecureStore even without Supabase
+        if (mounted) {
+          await restoreLocalTelegramSession(mounted);
+        }
       } finally {
         if (mounted) {
           setIsRestoring(false);
@@ -144,6 +152,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  // ── Restore Telegram from local SecureStore only (when Supabase is offline) ──
+  async function restoreLocalTelegramSession(mounted: boolean) {
+    try {
+      const sessionString = await SecureStore.getItemAsync(SECURE_STORE_SESSION_KEY);
+      if (!sessionString) return;
+
+      console.log("[Session] Restoring Telegram from local backup...");
+      const client = await connectClient(sessionString);
+      const me = await getMe(client);
+
+      if (mounted) {
+        setTelegramUser(me);
+        setTelegramConnected(true);
+        setIsTelegramReady(true);
+      }
+
+      console.log("[Session] Telegram restored (offline mode):", me.firstName);
+    } catch (err) {
+      console.warn("[Session] Local Telegram restore failed:", err);
+      await SecureStore.deleteItemAsync(SECURE_STORE_SESSION_KEY);
+    }
+  }
+
   // ── Persist session after fresh auth ──
   const persistSession = useCallback(async () => {
     try {
@@ -157,14 +188,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Save to SecureStore (instant local backup)
       await SecureStore.setItemAsync(SECURE_STORE_SESSION_KEY, sessionString);
 
-      // Save to Supabase (cloud backup)
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await saveTelegramSession(
-          session.user.id,
-          sessionString,
-          SESSION_ENCRYPTION_KEY
-        );
+      // Save to Supabase (cloud backup) — best effort
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await saveTelegramSession(
+            session.user.id,
+            sessionString,
+            SESSION_ENCRYPTION_KEY
+          );
+        }
+      } catch {
+        console.warn("[Session] Supabase backup skipped (offline)");
       }
 
       console.log("[Session] Session persisted successfully");
@@ -182,15 +217,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // Clear secure store
       await SecureStore.deleteItemAsync(SECURE_STORE_SESSION_KEY);
 
-      // Clear Supabase session data
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { deleteTelegramSession } = await import("@corp/shared");
-        await deleteTelegramSession(session.user.id);
+      // Clear Supabase session data — best effort
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { deleteTelegramSession } = await import("@corp/shared");
+          await deleteTelegramSession(session.user.id);
+        }
+        await supabase.auth.signOut();
+      } catch {
+        console.warn("[Session] Supabase sign out skipped (offline)");
       }
-
-      // Sign out from Supabase
-      await supabase.auth.signOut();
 
       // Reset all stores
       reset();
